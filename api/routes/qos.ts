@@ -10,8 +10,16 @@ router.post('/cake/enable', async (req, res) => {
     if (!bandwidthKbps) {
       return res.status(400).json({ success: false, error: 'bandwidthKbps is required' });
     }
-    const iface = getSettings().network.wanInterface;
-    await networkManager.enableCakeQoS({ interface: iface, bandwidthKbps: Number(bandwidthKbps), diffserv });
+    const settings = getSettings();
+    const preferred = settings.network.wanInterface;
+    let iface = preferred;
+    try {
+      const status = await networkManager.getNetworkStatus();
+      const prefer = status.interfaces.find(i => i.name === preferred && i.status === 'up');
+      const fallback = status.interfaces.find(i => i.status === 'up' && (i.type === 'ethernet' || i.type === 'wireless'));
+      iface = (prefer?.name || fallback?.name || preferred);
+    } catch {}
+    await networkManager.enableCakeQoS({ interface: String(iface), bandwidthKbps: Number(bandwidthKbps), diffserv });
     res.json({ success: true });
   } catch {
     res.status(500).json({ success: false, error: 'Failed to enable CAKE' });
@@ -20,8 +28,16 @@ router.post('/cake/enable', async (req, res) => {
 
 router.post('/cake/disable', async (req, res) => {
   try {
-    const iface = getSettings().network.wanInterface;
-    await networkManager.disableCakeQoS(iface);
+    const settings = getSettings();
+    const preferred = settings.network.wanInterface;
+    let iface = preferred;
+    try {
+      const status = await networkManager.getNetworkStatus();
+      const prefer = status.interfaces.find(i => i.name === preferred && i.status === 'up');
+      const fallback = status.interfaces.find(i => i.status === 'up' && (i.type === 'ethernet' || i.type === 'wireless'));
+      iface = (prefer?.name || fallback?.name || preferred);
+    } catch {}
+    await networkManager.disableCakeQoS(String(iface));
     res.json({ success: true });
   } catch {
     res.status(500).json({ success: false, error: 'Failed to disable CAKE' });

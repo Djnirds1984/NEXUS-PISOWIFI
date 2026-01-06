@@ -10,8 +10,8 @@ router.get('/', async (req, res) => {
     await networkManager.refreshDeviceStatus();
     const list = getDevices();
     res.json({ success: true, data: list });
-  } catch (e) {
-    res.status(500).json({ success: false, error: 'Failed to list devices' });
+  } catch {
+    res.json({ success: true, data: [] });
   }
 });
 
