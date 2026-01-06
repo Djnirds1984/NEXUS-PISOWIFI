@@ -10,6 +10,7 @@ Environment=NODE_ENV=production
 Environment=PORT=3001
 Environment=CAPTIVE_FORCE_REDIRECT=true
 Environment=CAPTIVE_SKIP_AP_VERIFY=true
+Environment=CAPTIVE_COUNTRY_CODE=PH
 Environment=PATH=/usr/local/bin:/usr/bin
 ExecStart=/usr/bin/npm run start:portal
 Restart=always

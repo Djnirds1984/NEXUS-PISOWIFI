@@ -365,6 +365,7 @@ iface ${interfaceName} inet static
 
   private async configureHostapd(config: HotspotConfig): Promise<void> {
     const isOpen = (config.security === 'open') || !config.password;
+    const country = process.env.CAPTIVE_COUNTRY_CODE || 'US';
     const hostapdConfig = `
 interface=${config.interface}
 driver=nl80211
@@ -375,6 +376,8 @@ wmm_enabled=0
 macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
+country_code=${country}
+ieee80211d=1
 ${isOpen ? 'wpa=0' : 'wpa=2'}
 ${isOpen ? '' : `wpa_passphrase=${config.password}`}
 ${isOpen ? '' : 'wpa_key_mgmt=WPA-PSK'}

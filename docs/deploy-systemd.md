@@ -29,3 +29,4 @@ sudo journalctl -u nexus-pisowifi -f
 - PORT=3001
 - CAPTIVE_FORCE_REDIRECT=true
 - CAPTIVE_SKIP_AP_VERIFY=true
+- CAPTIVE_COUNTRY_CODE=PH
