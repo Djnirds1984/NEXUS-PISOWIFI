@@ -460,6 +460,13 @@ address=/#/${config.ipAddress}
       const settings = getSettings();
       const gateway = settings.network.gateway;
 
+      // Check if iptables is available; if not, silently skip and log
+      const iptablesExists = await execAsync('which iptables').then(() => true).catch(() => false);
+      if (!iptablesExists) {
+        console.log('iptables not found; captive portal rules skipped.');
+        return;
+      }
+
       // Clear existing rules
       await this.clearCaptivePortalRules();
 
@@ -496,6 +503,10 @@ address=/#/${config.ipAddress}
 
   async clearCaptivePortalRules(): Promise<void> {
     try {
+      // Only clear rules if iptables is available
+      const iptablesExists = await execAsync('which iptables').then(() => true).catch(() => false);
+      if (!iptablesExists) return;
+
       // Clear NAT rules
       await execAsync('iptables -t nat -F PREROUTING');
       await execAsync('iptables -t nat -F POSTROUTING');
