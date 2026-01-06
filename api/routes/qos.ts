@@ -16,9 +16,20 @@ router.post('/cake/enable', async (req, res) => {
     try {
       const status = await networkManager.getNetworkStatus();
       const prefer = status.interfaces.find(i => i.name === preferred && i.status === 'up');
-      const fallback = status.interfaces.find(i => i.status === 'up' && (i.type === 'ethernet' || i.type === 'wireless'));
+      
+      // Fallback: Find any active interface that is NOT loopback and NOT the LAN interface (if known)
+      // Prioritize predictable ethernet names (enx..., eth...)
+      const fallback = status.interfaces.find(i => 
+        i.status === 'up' && 
+        i.name !== 'lo' && 
+        (i.type === 'ethernet' || i.type === 'wireless')
+      );
+      
       iface = (prefer?.name || fallback?.name || preferred);
-    } catch {}
+      console.log(`[QoS] Selected interface for CAKE: ${iface} (Preferred: ${preferred})`);
+    } catch (err) {
+      console.warn('[QoS] Failed to auto-detect interface, using preferred:', err);
+    }
     await networkManager.enableCakeQoS({ interface: String(iface), bandwidthKbps: Number(bandwidthKbps), diffserv });
     res.json({ success: true });
   } catch (e) {

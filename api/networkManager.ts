@@ -102,7 +102,9 @@ export class NetworkManager {
     if (name.startsWith('wlan') || name.startsWith('wifi')) return 'wireless';
     if (name.includes('.')) return 'vlan'; // VLAN interfaces have format like eth0.10
     if (name.startsWith('br')) return 'bridge';
-    return 'ethernet';
+    // Handle Predictable Network Interface Names (e.g., enx...)
+    if (name.startsWith('en') || name.startsWith('eth')) return 'ethernet';
+    return 'ethernet'; // Default to ethernet for unknown types (likely physical)
   }
 
   async getDefaultGateway(): Promise<string> {
@@ -754,10 +756,29 @@ address=/#/${config.ipAddress}
     const iface = params.interface;
     const bw = params.bandwidthKbps;
     const ds = params.diffserv || 'besteffort';
+
     try {
+      // 1. Check if tc exists
+      try {
+        await execAsync('which tc');
+      } catch {
+        throw new Error('Traffic Control (tc) utility not found. Please install iproute2.');
+      }
+
+      // 2. Check if interface exists
+      try {
+        await execAsync(`ip link show ${iface}`);
+      } catch {
+        throw new Error(`Interface ${iface} does not exist or is down.`);
+      }
+
+      // 3. Enable CAKE
       await execAsync(`tc qdisc replace dev ${iface} root cake bandwidth ${bw}kbit ${ds} nat dual-srchost dual-dsthost`);
-    } catch (e) {
-      throw e;
+    } catch (e: any) {
+      // Capture stderr if available
+      const errMsg = e.stderr ? `TC Error: ${e.stderr}` : (e.message || 'Unknown error');
+      console.error('CAKE Enable Failed:', errMsg);
+      throw new Error(errMsg);
     }
   }
 
