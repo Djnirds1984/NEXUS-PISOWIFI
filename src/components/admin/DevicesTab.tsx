@@ -101,10 +101,18 @@ const DevicesTab: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow-sm border p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <Users className="h-5 w-5 mr-2 text-blue-600" />
-          Devices
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+            <Users className="h-5 w-5 mr-2 text-blue-600" />
+            Devices
+          </h3>
+          <button
+            onClick={fetchDevices}
+            className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-md"
+          >
+            Refresh
+          </button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
           <input
             value={newDevice.macAddress}
@@ -137,6 +145,7 @@ const DevicesTab: React.FC = () => {
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Hostname</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Connected</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time Limit</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">First Seen</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Seen</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Bandwidth Cap</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500"></th>
@@ -177,6 +186,7 @@ const DevicesTab: React.FC = () => {
                         d.timeLimitMinutes || 0
                       )}
                     </td>
+                    <td className="px-4 py-2 text-sm">{d.firstSeen ? new Date(d.firstSeen).toLocaleString() : ''}</td>
                     <td className="px-4 py-2 text-sm">{d.lastSeen ? new Date(d.lastSeen).toLocaleString() : ''}</td>
                     <td className="px-4 py-2 text-sm">
                       {edit ? (

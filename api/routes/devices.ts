@@ -7,9 +7,35 @@ const router = express.Router();
 
 router.get('/', async (req, res) => {
   try {
-    await networkManager.refreshDeviceStatus();
-    const list = getDevices();
-    res.json({ success: true, data: list });
+    let discovered: Array<{ macAddress: string; ipAddress?: string; hostname?: string }> = [];
+    try {
+      discovered = await networkManager.listActiveDevices();
+    } catch {}
+
+    const now = new Date().toISOString();
+    for (const d of discovered) {
+      const existing = getDevice(d.macAddress);
+      upsertDevice({
+        macAddress: d.macAddress,
+        ipAddress: d.ipAddress,
+        hostname: d.hostname || existing?.hostname || '',
+        firstSeen: existing?.firstSeen || now,
+        lastSeen: now,
+        connected: true,
+        timeLimitMinutes: existing?.timeLimitMinutes || 0,
+        usageSeconds: existing?.usageSeconds || 0,
+        notes: existing?.notes || '',
+        bandwidthCapKbps: existing?.bandwidthCapKbps || 0,
+        priority: existing?.priority || 0,
+      });
+    }
+
+    const all = getDevices().map(d => {
+      const isActive = discovered.some(x => x.macAddress.toLowerCase() === d.macAddress.toLowerCase());
+      return { ...d, connected: isActive || !!d.connected };
+    });
+
+    res.json({ success: true, data: all });
   } catch {
     try {
       const list = getDevices();
