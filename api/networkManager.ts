@@ -628,29 +628,68 @@ address=/#/${config.ipAddress}
   }
 
   async listActiveDevices(): Promise<Array<{ macAddress: string; ipAddress: string; hostname?: string }>> {
-    const paths = [
+    const settings = getSettings();
+    const lan = settings.network.lanInterface;
+    // Prefer ip neigh (kernel neighbor table)
+    try {
+      const { stdout } = await execAsync(`ip -json neigh show dev ${lan}`);
+      const arr = JSON.parse(stdout);
+      const res = (Array.isArray(arr) ? arr : []).map((n: any) => ({
+        macAddress: (n.lladdr || '').toLowerCase(),
+        ipAddress: n.dst || '',
+        hostname: ''
+      })).filter((x: any) => x.macAddress && x.ipAddress);
+      if (res.length) return res;
+    } catch {}
+    // Fallback: ip neigh (text)
+    try {
+      const { stdout } = await execAsync(`ip neigh show dev ${lan}`);
+      const lines = stdout.split('\n').filter(Boolean);
+      const res = lines.map(line => {
+        const ip = (line.split(' ')[0] || '').trim();
+        const macMatch = line.match(/lladdr\s+(([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})/);
+        const mac = macMatch ? macMatch[1].toLowerCase() : '';
+        return { macAddress: mac, ipAddress: ip, hostname: '' };
+      }).filter(x => x.macAddress && x.ipAddress);
+      if (res.length) return res;
+    } catch {}
+    // Fallback: /proc/net/arp
+    try {
+      const { stdout } = await execAsync('cat /proc/net/arp');
+      const lines = stdout.split('\n').slice(1).filter(Boolean);
+      const res = lines.map(l => {
+        const parts = l.trim().split(/\s+/);
+        const ip = parts[0];
+        const mac = (parts[3] || '').toLowerCase();
+        return { macAddress: mac, ipAddress: ip, hostname: '' };
+      }).filter(x => x.macAddress && x.ipAddress);
+      if (res.length) return res;
+    } catch {}
+    // Fallback: dnsmasq leases
+    const leasePaths = [
       '/var/lib/misc/dnsmasq.leases',
       '/var/lib/dnsmasq/dnsmasq.leases',
       '/var/run/dnsmasq/dnsmasq.leases'
     ];
-    for (const p of paths) {
+    for (const p of leasePaths) {
       try {
         const { stdout } = await execAsync(`cat ${p}`);
         const lines = stdout.split('\n').filter(Boolean);
         const res = lines.map(l => {
           const parts = l.split(' ');
-          return { macAddress: parts[1], ipAddress: parts[2], hostname: parts[3] || '' };
-        });
-        return res;
+          return { macAddress: (parts[1] || '').toLowerCase(), ipAddress: parts[2] || '', hostname: parts[3] || '' };
+        }).filter(x => x.macAddress && x.ipAddress);
+        if (res.length) return res;
       } catch {}
     }
+    // Last resort: arp -an
     try {
       const { stdout } = await execAsync('arp -an');
       const lines = stdout.split('\n').filter(Boolean);
       const res = lines.map(l => {
         const ipMatch = l.match(/\((\d+\.\d+\.\d+\.\d+)\)/);
         const macMatch = l.match(/(([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})/);
-        return { macAddress: macMatch ? macMatch[1] : '', ipAddress: ipMatch ? ipMatch[1] : '' };
+        return { macAddress: macMatch ? macMatch[1].toLowerCase() : '', ipAddress: ipMatch ? ipMatch[1] : '' };
       }).filter(x => x.macAddress && x.ipAddress);
       return res;
     } catch {
