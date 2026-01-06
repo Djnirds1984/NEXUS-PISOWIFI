@@ -98,6 +98,37 @@ export class SessionManager {
     }
   }
 
+  async startTimedSession(macAddress: string, minutes: number): Promise<UserSession> {
+    try {
+      if (typeof minutes !== 'number' || minutes <= 0) {
+        throw new Error('minutes must be a positive number');
+      }
+      const now = new Date();
+      const endTime = new Date(now.getTime() + minutes * 60000);
+      const session: UserSession = {
+        macAddress,
+        startTime: now,
+        endTime,
+        pesos: 0,
+        minutes,
+        active: true
+      };
+      addSession({
+        ...session,
+        startTime: session.startTime.toISOString(),
+        endTime: session.endTime.toISOString()
+      });
+      this.activeSessions.set(macAddress, session);
+      await networkManager.allowMACAddress(macAddress);
+      this.scheduleSessionExpiration(macAddress, endTime);
+      console.log(`Timed session started for ${macAddress}: ${minutes} minutes`);
+      return session;
+    } catch (error) {
+      console.error('Error starting timed session:', error);
+      throw error;
+    }
+  }
+
   async endSession(macAddress: string): Promise<void> {
     try {
       const session = this.activeSessions.get(macAddress);

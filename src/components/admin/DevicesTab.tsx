@@ -21,13 +21,29 @@ const DevicesTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [newDevice, setNewDevice] = useState<{ macAddress: string; timeLimitMinutes: number }>({ macAddress: '', timeLimitMinutes: 0 });
   const [editing, setEditing] = useState<Record<string, Device>>({});
+  const [countdown, setCountdown] = useState<Record<string, number>>({});
 
   const fetchDevices = async () => {
     try {
       const res = await fetch('/api/devices');
       if (!res.ok) throw new Error('Failed to load devices');
       const data = await res.json();
-      setDevices(data.data || []);
+      const list: Device[] = data.data || [];
+      setDevices(list);
+      try {
+        const sres = await fetch('/api/session/active');
+        if (sres.ok) {
+          const sdata = await sres.json();
+          const active = (sdata.data || []) as Array<{ macAddress: string; timeRemaining: number }>;
+          const map: Record<string, number> = {};
+          for (const s of active) {
+            map[s.macAddress] = s.timeRemaining || 0;
+          }
+          setCountdown(map);
+        }
+      } catch {
+        setCountdown(prev => prev);
+      }
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
@@ -40,6 +56,19 @@ const DevicesTab: React.FC = () => {
     fetchDevices();
     const t = setInterval(fetchDevices, 5000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        const next: Record<string, number> = {};
+        for (const k of Object.keys(prev)) {
+          next[k] = Math.max(0, (prev[k] || 0) - 1);
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
   }, []);
 
   const handleAdd = async () => {
@@ -145,6 +174,7 @@ const DevicesTab: React.FC = () => {
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Hostname</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Connected</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time Limit</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time Remaining</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">First Seen</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Seen</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Bandwidth Cap</th>
@@ -185,6 +215,20 @@ const DevicesTab: React.FC = () => {
                       ) : (
                         d.timeLimitMinutes || 0
                       )}
+                    </td>
+                    <td className="px-4 py-2 text-sm">
+                      <span className={`font-mono ${((countdown[d.macAddress] || 0) > 5) ? 'text-green-700' : 'text-red-700'}`}>
+                        {(() => {
+                          const s = Math.max(0, countdown[d.macAddress] || 0);
+                          const h = Math.floor(s / 3600);
+                          const m = Math.floor((s % 3600) / 60);
+                          const sec = s % 60;
+                          const hh = h.toString().padStart(2, '0');
+                          const mm = m.toString().padStart(2, '0');
+                          const ss = sec.toString().padStart(2, '0');
+                          return `${hh}:${mm}:${ss}`;
+                        })()}
+                      </span>
                     </td>
                     <td className="px-4 py-2 text-sm">{d.firstSeen ? new Date(d.firstSeen).toLocaleString() : ''}</td>
                     <td className="px-4 py-2 text-sm">{d.lastSeen ? new Date(d.lastSeen).toLocaleString() : ''}</td>

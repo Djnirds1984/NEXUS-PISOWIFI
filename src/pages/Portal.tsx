@@ -54,6 +54,14 @@ const Portal: React.FC = () => {
     }
   }, [sessionInfo?.isActive]);
 
+  useEffect(() => {
+    if (!sessionInfo?.isActive) return;
+    const t = setInterval(() => {
+      setSessionInfo(prev => prev ? { ...prev, timeRemaining: Math.max(0, prev.timeRemaining - 1) } : prev);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [sessionInfo?.isActive]);
+
   const fetchPortalData = async () => {
     try {
       setLoading(true);

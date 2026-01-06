@@ -1,6 +1,7 @@
 import express from 'express';
 import { upsertDevice, getDevices, getDevice, updateDevice, deleteDevice } from '../database.js';
 import { networkManager } from '../networkManager.js';
+import { sessionManager } from '../sessionManager.js';
 import { getSettings } from '../database.js';
 
 const router = express.Router();
@@ -77,7 +78,25 @@ router.put('/:mac', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Device not found' });
     }
     updateDevice(mac, req.body || {});
-    res.json({ success: true });
+
+    const t = req.body?.timeLimitMinutes;
+    if (typeof t === 'number') {
+      if (t > 0) {
+        const existing = sessionManager.getSession(mac);
+        if (existing?.active) {
+          await sessionManager.endSession(mac);
+        }
+        await sessionManager.startTimedSession(mac, t);
+      } else {
+        const existing = sessionManager.getSession(mac);
+        if (existing?.active) {
+          await sessionManager.endSession(mac);
+        }
+      }
+    }
+
+    const timeRemaining = sessionManager.getSessionTimeRemaining(mac);
+    res.json({ success: true, data: { timeRemaining } });
   } catch (e) {
     res.status(500).json({ success: false, error: 'Failed to update device' });
   }
