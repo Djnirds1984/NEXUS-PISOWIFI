@@ -21,6 +21,7 @@ import portalRoutes from './routes/portal.js'
 // for esm mode
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+const clientDist = path.join(process.cwd(), 'dist')
 
 // load env
 dotenv.config()
@@ -53,6 +54,23 @@ app.use(
     })
   },
 )
+
+/**
+ * Static frontend (production)
+ * Serve built React app from /dist
+ */
+app.use(express.static(clientDist))
+
+// SPA fallback for non-API routes
+app.get('*', (req: Request, res: Response) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({
+      success: false,
+      error: 'API not found',
+    })
+  }
+  res.sendFile(path.join(clientDist, 'index.html'))
+})
 
 /**
  * error handler middleware

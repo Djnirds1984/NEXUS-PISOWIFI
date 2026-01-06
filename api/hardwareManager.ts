@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import fs from 'fs';
 import { getSettings, updateSettings } from './database.js';
 
 export interface HardwareStatus {
@@ -81,6 +82,25 @@ export class HardwareManager {
     try {
       // Check for Raspberry Pi
       try {
+        const modelPath = '/proc/device-tree/model';
+        if (fs.existsSync(modelPath)) {
+          const model = fs.readFileSync(modelPath, 'utf8').toLowerCase();
+          if (model.includes('raspberry pi')) {
+            return {
+              type: 'raspberry-pi',
+              gpioSupported: true,
+              description: 'Raspberry Pi detected',
+            };
+          }
+          if (model.includes('orange pi')) {
+            return {
+              type: 'orange-pi',
+              gpioSupported: true,
+              description: 'Orange Pi detected',
+            };
+          }
+        }
+        // Fallback: check cpuinfo for Broadcom chips
         const cpuInfo = execSync('cat /proc/cpuinfo', { encoding: 'utf8' });
         if (cpuInfo.includes('BCM2835') || cpuInfo.includes('BCM2837') || cpuInfo.includes('BCM2711')) {
           return {
@@ -155,6 +175,8 @@ export class HardwareManager {
       // Try to load rpio library
       this.rpio = await import('rpio');
       this.status.rpioLoaded = true;
+      // Use physical pin mapping so numbers match board silkscreen
+      this.rpio.init({ gpiomem: true, mapping: 'physical' });
 
       // Initialize GPIO pins
       this.rpio.open(this.status.coinSlotPin, this.rpio.INPUT, this.rpio.PULL_UP);
@@ -174,8 +196,10 @@ export class HardwareManager {
 
     if (this.status.mockMode || !this.rpio) {
       console.log('Coin detection running in mock mode');
-      // In mock mode, we'll simulate coin pulses for testing
-      this.simulateCoinPulses();
+      // Optional simulation in mock mode only if enabled via env
+      if (process.env.SIMULATE_COINS === 'true') {
+        this.simulateCoinPulses();
+      }
       return;
     }
 
