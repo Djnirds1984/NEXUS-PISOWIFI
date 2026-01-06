@@ -344,13 +344,14 @@ iface ${interfaceName} inet static
   }
 
   private async installHotspotPackages(): Promise<void> {
-    try {
-      await execAsync('which hostapd');
-      await execAsync('which dnsmasq');
-      await execAsync('which iw');
-    } catch (error) {
-      console.log('Installing hostapd and dnsmasq...');
-      await execAsync('apt update && apt install -y hostapd dnsmasq iw');
+    const checks = [
+      execAsync('which hostapd').then(() => true).catch(() => false),
+      execAsync('which dnsmasq').then(() => true).catch(() => false),
+      execAsync('which iw').then(() => true).catch(() => false),
+    ];
+    const [hasHostapd, hasDnsmasq, hasIw] = await Promise.all(checks);
+    if (!hasHostapd || !hasDnsmasq) {
+      throw new Error('Required binaries missing: hostapd or dnsmasq');
     }
     // Ensure hostapd is not masked and ready
     await execAsync('systemctl unmask hostapd || true');
@@ -455,14 +456,30 @@ address=/#/${config.ipAddress}
     }
   }
 
+  private async getIptablesCmd(): Promise<string | null> {
+    const candidates = [
+      'iptables',
+      '/usr/sbin/iptables',
+      '/sbin/iptables',
+      '/usr/bin/iptables',
+      '/bin/iptables',
+      '/usr/sbin/iptables-nft',
+      '/usr/sbin/iptables-legacy'
+    ];
+    for (const cmd of candidates) {
+      const ok = await execAsync(`${cmd} --version`).then(() => true).catch(() => false);
+      if (ok) return cmd;
+    }
+    return null;
+  }
+ 
   async enableCaptivePortal(): Promise<void> {
     try {
       const settings = getSettings();
       const gateway = settings.network.gateway;
 
-      // Check if iptables is available; if not, silently skip and log
-      const iptablesExists = await execAsync('which iptables').then(() => true).catch(() => false);
-      if (!iptablesExists) {
+      const ipt = await this.getIptablesCmd();
+      if (!ipt) {
         console.log('iptables not found; captive portal rules skipped.');
         return;
       }
@@ -472,11 +489,11 @@ address=/#/${config.ipAddress}
 
       // Add iptables rules for captive portal
       const rules = [
-        `iptables -t nat -A PREROUTING -i ${settings.network.lanInterface} -p tcp --dport 80 -j DNAT --to-destination ${gateway}:80`,
-        `iptables -t nat -A PREROUTING -i ${settings.network.lanInterface} -p tcp --dport 443 -j DNAT --to-destination ${gateway}:443`,
-        `iptables -t nat -A POSTROUTING -o ${settings.network.wanInterface} -j MASQUERADE`,
-        `iptables -A FORWARD -i ${settings.network.lanInterface} -o ${settings.network.wanInterface} -j ACCEPT`,
-        `iptables -A FORWARD -i ${settings.network.wanInterface} -o ${settings.network.lanInterface} -m state --state RELATED,ESTABLISHED -j ACCEPT`
+        `${ipt} -t nat -A PREROUTING -i ${settings.network.lanInterface} -p tcp --dport 80 -j DNAT --to-destination ${gateway}:80`,
+        `${ipt} -t nat -A PREROUTING -i ${settings.network.lanInterface} -p tcp --dport 443 -j DNAT --to-destination ${gateway}:443`,
+        `${ipt} -t nat -A POSTROUTING -o ${settings.network.wanInterface} -j MASQUERADE`,
+        `${ipt} -A FORWARD -i ${settings.network.lanInterface} -o ${settings.network.wanInterface} -j ACCEPT`,
+        `${ipt} -A FORWARD -i ${settings.network.wanInterface} -o ${settings.network.lanInterface} -m state --state RELATED,ESTABLISHED -j ACCEPT`
       ];
 
       for (const rule of rules) {
@@ -503,16 +520,15 @@ address=/#/${config.ipAddress}
 
   async clearCaptivePortalRules(): Promise<void> {
     try {
-      // Only clear rules if iptables is available
-      const iptablesExists = await execAsync('which iptables').then(() => true).catch(() => false);
-      if (!iptablesExists) return;
+      const ipt = await this.getIptablesCmd();
+      if (!ipt) return;
 
       // Clear NAT rules
-      await execAsync('iptables -t nat -F PREROUTING');
-      await execAsync('iptables -t nat -F POSTROUTING');
+      await execAsync(`${ipt} -t nat -F PREROUTING`);
+      await execAsync(`${ipt} -t nat -F POSTROUTING`);
       
       // Clear filter rules
-      await execAsync('iptables -F FORWARD');
+      await execAsync(`${ipt} -F FORWARD`);
       
       this.iptablesRules = [];
     } catch (error) {
@@ -525,7 +541,9 @@ address=/#/${config.ipAddress}
       const settings = getSettings();
       
       // Allow traffic from this MAC address
-      await execAsync(`iptables -I FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
+      const ipt = await this.getIptablesCmd();
+      if (!ipt) return;
+      await execAsync(`${ipt} -I FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
       
       console.log(`MAC address ${macAddress} allowed through captive portal`);
     } catch (error) {
@@ -537,7 +555,9 @@ address=/#/${config.ipAddress}
   async blockMACAddress(macAddress: string): Promise<void> {
     try {
       // Remove rules for this MAC address
-      await execAsync(`iptables -D FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
+      const ipt = await this.getIptablesCmd();
+      if (!ipt) return;
+      await execAsync(`${ipt} -D FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
       
       console.log(`MAC address ${macAddress} blocked from captive portal`);
     } catch (error) {
@@ -559,7 +579,9 @@ address=/#/${config.ipAddress}
 
   async getIptablesRules(): Promise<string[]> {
     try {
-      const { stdout } = await execAsync('iptables -L -n -v');
+      const ipt = await this.getIptablesCmd();
+      if (!ipt) return [];
+      const { stdout } = await execAsync(`${ipt} -L -n -v`);
       return stdout.split('\n').filter(line => line.trim());
     } catch (error) {
       console.error('Error getting iptables rules:', error);
