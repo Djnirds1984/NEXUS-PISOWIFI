@@ -15,6 +15,13 @@ interface SessionInfo {
   totalPesos: number;
 }
 
+interface DeviceInfo {
+  ip: string;
+  mac: string;
+  deviceName: string;
+  refreshedAt: string;
+}
+
 const Portal: React.FC = () => {
   const [portalSettings, setPortalSettings] = useState<PortalSettings>({
     title: 'NEXUS PISOWIFI',
@@ -32,6 +39,7 @@ const Portal: React.FC = () => {
   const [pesosInserted, setPesosInserted] = useState(0);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [rates, setRates] = useState<{ pesos: number; minutes: number }[]>([]);
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
 
   // Fetch portal settings and session info
   useEffect(() => {
@@ -49,10 +57,11 @@ const Portal: React.FC = () => {
   const fetchPortalData = async () => {
     try {
       setLoading(true);
-      const [settingsResponse, sessionResponse, ratesResponse] = await Promise.all([
+      const [settingsResponse, sessionResponse, ratesResponse, deviceInfoResponse] = await Promise.all([
         fetch('/api/portal/config'),
         fetch('/api/portal/status'),
-        fetch('/api/portal/rates')
+        fetch('/api/portal/rates'),
+        fetch('/api/portal/device-info')
       ]);
 
       if (settingsResponse.ok) {
@@ -75,6 +84,17 @@ const Portal: React.FC = () => {
       if (ratesResponse.ok) {
         const r = await ratesResponse.json();
         setRates(r.data || []);
+      }
+
+      if (deviceInfoResponse.ok) {
+        const di = await deviceInfoResponse.json();
+        const data = di.data || di;
+        setDeviceInfo({
+          ip: data.ip || 'N/A',
+          mac: data.mac || 'N/A',
+          deviceName: data.deviceName || 'Unknown',
+          refreshedAt: data.refreshedAt || new Date().toISOString()
+        });
       }
     } catch (err) {
       console.error('Error fetching portal data:', err);
@@ -101,6 +121,42 @@ const Portal: React.FC = () => {
       console.error('Error fetching session info:', err);
     }
   };
+
+  const formatMAC = (mac: string) => {
+    const raw = (mac || '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+    if (raw.length === 12) {
+      return raw.match(/.{1,2}/g)?.join(':') || mac.toUpperCase();
+    }
+    return (mac || '').toUpperCase();
+  };
+
+  const fetchDeviceInfo = async () => {
+    try {
+      const response = await fetch('/api/portal/device-info');
+      if (response.ok) {
+        const di = await response.json();
+        const data = di.data || di;
+        setDeviceInfo({
+          ip: data.ip || 'N/A',
+          mac: data.mac || 'N/A',
+          deviceName: data.deviceName || 'Unknown',
+          refreshedAt: data.refreshedAt || new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      setDeviceInfo(prev => prev || {
+        ip: 'N/A',
+        mac: 'N/A',
+        deviceName: 'Unknown',
+        refreshedAt: new Date().toISOString()
+      });
+    }
+  };
+
+  useEffect(() => {
+    const interval = setInterval(fetchDeviceInfo, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleConnect = async () => {
     try {
@@ -289,6 +345,36 @@ const Portal: React.FC = () => {
                 <span className="text-sm">{error}</span>
               </div>
             )}
+
+            <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 mb-4`}>
+              <h3 className={`text-sm font-semibold mb-3 ${isDarkTheme ? 'text-white' : 'text-gray-900'}`}>
+                Your Device Information
+              </h3>
+              <div className="overflow-hidden rounded-md border border-gray-200">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className={isDarkTheme ? 'bg-gray-800' : 'bg-gray-100'}>
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">MAC</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">IP</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Device</th>
+                    </tr>
+                  </thead>
+                  <tbody className={isDarkTheme ? 'bg-gray-700' : 'bg-white'}>
+                    <tr>
+                      <td className={`px-4 py-2 text-sm ${isDarkTheme ? 'text-gray-200' : 'text-gray-800'}`}>
+                        {deviceInfo ? `MAC: ${formatMAC(deviceInfo.mac)}` : 'MAC: N/A'}
+                      </td>
+                      <td className={`px-4 py-2 text-sm ${isDarkTheme ? 'text-gray-200' : 'text-gray-800'}`}>
+                        {deviceInfo ? `IP: ${deviceInfo.ip}` : 'IP: N/A'}
+                      </td>
+                      <td className={`px-4 py-2 text-sm ${isDarkTheme ? 'text-gray-200' : 'text-gray-800'}`}>
+                        {deviceInfo ? deviceInfo.deviceName || 'Unknown' : 'Unknown'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             {!sessionInfo?.isActive ? (
               /* Not Connected State */

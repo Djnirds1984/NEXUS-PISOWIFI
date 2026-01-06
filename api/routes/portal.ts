@@ -2,6 +2,7 @@ import express from 'express';
 import { getSettings } from '../database.js';
 import { sessionManager } from '../sessionManager.js';
 import { resolveMACByIP } from '../utils/network.js';
+import { networkManager } from '../networkManager.js';
 
 const router = express.Router();
 
@@ -25,6 +26,32 @@ router.get('/config', async (req, res) => {
       success: false,
       error: 'Failed to get portal configuration'
     });
+  }
+});
+
+// Device info for current client
+router.get('/device-info', async (req, res) => {
+  try {
+    const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
+    const mac = await resolveMACByIP(ip);
+    const list = await networkManager.listActiveDevices().catch(() => []);
+    const fromList = list.find(d => d.ipAddress === ip || (mac && d.macAddress === mac));
+    const hostname = fromList?.hostname || '';
+    const macOut = (mac || '').toUpperCase();
+    if (!ip) {
+      return res.status(400).json({ success: false, error: 'IP not found' });
+    }
+    res.json({
+      success: true,
+      data: {
+        ip,
+        mac: macOut,
+        deviceName: hostname || '',
+        refreshedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to get device info' });
   }
 });
 
