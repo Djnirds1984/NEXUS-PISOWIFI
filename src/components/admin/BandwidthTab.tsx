@@ -14,11 +14,17 @@ const BandwidthTab: React.FC = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ bandwidthKbps })
         });
-        if (!res.ok) throw new Error('Failed to enable CAKE');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || 'Failed to enable CAKE');
+        }
         setCakeEnabled(true);
       } else {
         const res = await fetch('/api/qos/cake/disable', { method: 'POST' });
-        if (!res.ok) throw new Error('Failed to disable CAKE');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || 'Failed to disable CAKE');
+        }
         setCakeEnabled(false);
       }
     } catch (e) {
