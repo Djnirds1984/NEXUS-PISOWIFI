@@ -56,8 +56,7 @@ export class HardwareManager {
       // Initialize GPIO if available
       if (platform.gpioSupported && !this.status.mockMode) {
         await this.initializeGPIO();
-      } else {
-        console.log('Running in mock mode - GPIO operations will be simulated');
+      } else if (!platform.gpioSupported) {
         this.status.mockMode = true;
       }
 
@@ -187,7 +186,6 @@ export class HardwareManager {
 
     } catch (error) {
       console.warn('Failed to initialize GPIO, falling back to mock mode:', error);
-      this.status.mockMode = true;
       this.status.rpioLoaded = false;
     }
   }
