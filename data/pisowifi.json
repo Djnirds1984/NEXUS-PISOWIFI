@@ -1,0 +1,40 @@
+{
+  "settings": {
+    "hardware": {
+      "coinSlotPin": 15,
+      "statusLEDPin": 16,
+      "platform": "unknown",
+      "mockMode": true
+    },
+    "network": {
+      "wanInterface": "eth0",
+      "lanInterface": "wlan0",
+      "gateway": "10.0.0.1",
+      "dhcpRange": "10.0.0.10-10.0.0.250",
+      "vlanInterfaces": []
+    },
+    "rates": {
+      "timePerPeso": 30,
+      "rates": [
+        {
+          "pesos": 1,
+          "minutes": 30
+        },
+        {
+          "pesos": 5,
+          "minutes": 240
+        },
+        {
+          "pesos": 10,
+          "minutes": 600
+        }
+      ]
+    },
+    "portal": {
+      "title": "Welcome to PisoWiFi",
+      "backgroundImage": "/assets/default-bg.jpg",
+      "welcomeMessage": "Insert coin to start browsing"
+    }
+  },
+  "sessions": []
+}
