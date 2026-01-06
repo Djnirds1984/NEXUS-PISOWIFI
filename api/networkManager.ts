@@ -323,7 +323,12 @@ iface ${interfaceName} inet static
       await this.configureHotspotInterface(finalConfig);
 
       // Enable IP forwarding
-      await execAsync('sysctl -w net.ipv4.ip_forward=1');
+      const sysctlCmd = await this.getSysctlCmd();
+      if (sysctlCmd) {
+        await execAsync(`${sysctlCmd} -w net.ipv4.ip_forward=1`);
+      } else {
+        await execAsync('echo 1 > /proc/sys/net/ipv4/ip_forward');
+      }
 
       // Start services
       await execAsync('systemctl stop hostapd || true');
@@ -490,6 +495,15 @@ address=/#/${config.ipAddress}
  
   private async getIwCmd(): Promise<string | null> {
     const candidates = ['iw', '/usr/sbin/iw', '/sbin/iw', '/usr/bin/iw', '/bin/iw'];
+    for (const cmd of candidates) {
+      const ok = await execAsync(`${cmd} --version`).then(() => true).catch(() => false);
+      if (ok) return cmd;
+    }
+    return null;
+  }
+ 
+  private async getSysctlCmd(): Promise<string | null> {
+    const candidates = ['sysctl', '/usr/sbin/sysctl', '/sbin/sysctl', '/usr/bin/sysctl', '/bin/sysctl'];
     for (const cmd of candidates) {
       const ok = await execAsync(`${cmd} --version`).then(() => true).catch(() => false);
       if (ok) return cmd;
