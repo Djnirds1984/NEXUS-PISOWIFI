@@ -188,7 +188,7 @@ After=network.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/nexus-pisowifi
+WorkingDirectory=/root/NEXUS-PISOWIFI
 ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=10
