@@ -42,6 +42,32 @@ export default defineConfig({
           });
         },
       }
+      ,
+      '/generate_204': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/hotspot-detect.html': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/ncsi.txt': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/connecttest.txt': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/redirect': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      }
     }
   }
 })

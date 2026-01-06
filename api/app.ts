@@ -46,14 +46,20 @@ app.use('/api/portal', portalRoutes)
  * Captive portal detection endpoints
  */
 app.get('/generate_204', (req, res) => {
-  res.status(204).end();
-});
+  res.redirect('/portal')
+})
 app.get('/hotspot-detect.html', (req, res) => {
-  res.status(200).send('<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>');
-});
+  res.redirect('/portal')
+})
 app.get('/ncsi.txt', (req, res) => {
-  res.type('text/plain').send('Microsoft NCSI');
-});
+  res.redirect('/portal')
+})
+app.get('/connecttest.txt', (req, res) => {
+  res.redirect('/portal')
+})
+app.get('/redirect', (req, res) => {
+  res.redirect('/portal')
+})
 
 /**
  * health
