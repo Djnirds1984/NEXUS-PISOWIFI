@@ -415,12 +415,23 @@ address=/#/${config.ipAddress}
   }
  
   private async verifyAPSupport(interfaceName: string): Promise<void> {
+    if (process.env.CAPTIVE_SKIP_AP_VERIFY === 'true') {
+      return;
+    }
     try {
       const { stdout } = await execAsync('iw list');
       if (!stdout.includes('AP')) {
-        throw new Error('Wireless adapter does not support AP mode');
+        const devInfo = await execAsync(`iw dev ${interfaceName} info`).catch(() => ({ stdout: '' }));
+        const phyInfo = await execAsync('iw phy').catch(() => ({ stdout: '' }));
+        const ok = devInfo.stdout.includes('type AP') || phyInfo.stdout.includes('AP');
+        if (!ok) {
+          throw new Error('Wireless adapter does not support AP mode');
+        }
       }
     } catch (error) {
+      if (process.env.CAPTIVE_SKIP_AP_VERIFY === 'true') {
+        return;
+      }
       throw new Error('Cannot verify AP mode support. Ensure iw is installed and adapter supports AP.');
     }
   }

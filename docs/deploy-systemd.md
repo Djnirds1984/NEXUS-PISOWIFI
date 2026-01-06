@@ -28,3 +28,4 @@ sudo journalctl -u nexus-pisowifi -f
 - NODE_ENV=production
 - PORT=3001
 - CAPTIVE_FORCE_REDIRECT=true
+- CAPTIVE_SKIP_AP_VERIFY=true
