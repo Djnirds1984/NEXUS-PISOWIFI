@@ -531,24 +531,46 @@ address=/#/${config.ipAddress}
         return;
       }
 
-      // Clear existing rules
-      await this.clearCaptivePortalRules();
-
-      // Add iptables rules for captive portal
-      const rules = [
-        `${ipt} -t nat -A PREROUTING -i ${settings.network.lanInterface} -p tcp --dport 80 -j DNAT --to-destination ${gateway}:80`,
-        `${ipt} -t nat -A PREROUTING -i ${settings.network.lanInterface} -p tcp --dport 443 -j DNAT --to-destination ${gateway}:443`,
-        `${ipt} -t nat -A POSTROUTING -o ${settings.network.wanInterface} -j MASQUERADE`,
-        `${ipt} -A FORWARD -i ${settings.network.lanInterface} -o ${settings.network.wanInterface} -j ACCEPT`,
-        `${ipt} -A FORWARD -i ${settings.network.wanInterface} -o ${settings.network.lanInterface} -m state --state RELATED,ESTABLISHED -j ACCEPT`
-      ];
-
-      for (const rule of rules) {
-        await execAsync(rule);
-        this.iptablesRules.push(rule);
+      // 1. Enable IP forwarding
+      try {
+        await execAsync('sysctl -w net.ipv4.ip_forward=1');
+      } catch (e) {
+        // Fallback or ignore if already set/failed
       }
 
-      console.log('Captive portal enabled');
+      // 2. Flush existing rules
+      await execAsync(`${ipt} -F FORWARD`);
+      await execAsync(`${ipt} -t nat -F`);
+
+      // 3. Allow DNS (Port 53)
+      await execAsync(`${ipt} -A FORWARD -p udp --dport 53 -j ACCEPT`);
+      await execAsync(`${ipt} -A FORWARD -p tcp --dport 53 -j ACCEPT`);
+
+      // 4. Allow traffic to Portal IP
+      await execAsync(`${ipt} -A FORWARD -d ${gateway} -j ACCEPT`);
+
+      // 5. Allow ESTABLISHED/RELATED (Critical for return traffic not explicitly mentioned but required)
+      await execAsync(`${ipt} -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT`);
+
+      // 6. BLOCK ALL OTHER INTERNET FORWARDING (Policy DROP)
+      await execAsync(`${ipt} -P FORWARD DROP`);
+
+      // 7. HTTP Redirect (Captive Portal)
+      await execAsync(`${ipt} -t nat -A PREROUTING -i ${settings.network.lanInterface} -p tcp --dport 80 -j DNAT --to-destination ${gateway}:80`);
+
+      // 8. Masquerade (NAT) - Required for internet access
+      await execAsync(`${ipt} -t nat -A POSTROUTING -o ${settings.network.wanInterface} -j MASQUERADE`);
+
+      // Store rules for reference (though flushing wipes them, so this is just for state tracking)
+      this.iptablesRules = [
+        'Policy FORWARD DROP',
+        'Allow DNS',
+        'Allow Portal',
+        'Redirect HTTP',
+        'Masquerade'
+      ];
+
+      console.log('Captive portal enabled with strict blocking rules');
     } catch (error) {
       console.error('Error enabling captive portal:', error);
       throw error;

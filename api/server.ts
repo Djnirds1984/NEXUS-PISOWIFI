@@ -48,6 +48,15 @@ async function initializePisoWiFi() {
       console.warn('Captive portal enable failed (will require proper network config):', e instanceof Error ? e.message : e);
     }
     
+    // Initialize session manager (restores sessions and firewall rules)
+    // Must run AFTER captive portal rules are set (to avoid flushing restored rules)
+    try {
+      await sessionManager.initialize();
+      console.log('✓ Session manager initialized');
+    } catch (e) {
+      console.error('Failed to initialize session manager:', e);
+    }
+    
     try {
       const settings = (await import('./database.js')).getSettings();
       const net = settings.network;

@@ -24,10 +24,10 @@ export class SessionManager {
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor() {
-    this.initialize();
+    // Initialization is now called explicitly from server.ts
   }
 
-  private async initialize(): Promise<void> {
+  public async initialize(): Promise<void> {
     // Load existing active sessions from database
     const sessions = getActiveSessions();
     for (const session of sessions) {
