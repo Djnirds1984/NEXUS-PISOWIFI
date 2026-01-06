@@ -1,0 +1,19 @@
+[Unit]
+Description=NEXUS PISOWIFI System
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/NEXUS-PISOWIFI
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=CAPTIVE_FORCE_REDIRECT=true
+Environment=PATH=/usr/local/bin:/usr/bin
+ExecStart=/usr/bin/npm run start:portal
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
