@@ -50,6 +50,23 @@ const HardwareTab: React.FC = () => {
     }
   };
 
+  const disableMockMode = async () => {
+    try {
+      const response = await fetch('/api/hardware/mock-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: false })
+      });
+      if (!response.ok) {
+        throw new Error('Failed to disable mock mode');
+      }
+      await fetchHardwareStatus();
+      alert('Mock mode disabled. GPIO initialized if available.');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to disable mock mode');
+    }
+  };
+
   const fetchAvailablePins = async () => {
     try {
       const response = await fetch('/api/hardware/pins');
@@ -203,6 +220,16 @@ const HardwareTab: React.FC = () => {
         {hardwareStatus.lastCoinPulse && (
           <div className="mt-4 text-sm text-gray-600">
             Last coin pulse: {new Date(hardwareStatus.lastCoinPulse).toLocaleTimeString()}
+          </div>
+        )}
+        {hardwareStatus.mockMode && (
+          <div className="mt-4">
+            <button
+              onClick={disableMockMode}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              Disable Mock Mode
+            </button>
           </div>
         )}
       </div>

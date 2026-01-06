@@ -126,6 +126,35 @@ router.post('/led/blink', async (req, res) => {
   }
 });
 
+// Toggle mock mode
+router.post('/mock-mode', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'enabled must be a boolean'
+      });
+    }
+
+    hardwareManager.setMockMode(enabled);
+    const status = hardwareManager.getHardwareStatus();
+
+    res.json({
+      success: true,
+      message: `Mock mode ${enabled ? 'enabled' : 'disabled'}`,
+      data: status
+    });
+  } catch (error) {
+    console.error('Error toggling mock mode:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to toggle mock mode'
+    });
+  }
+});
+
 export default router;
  
 // Server-Sent Events: coin stream

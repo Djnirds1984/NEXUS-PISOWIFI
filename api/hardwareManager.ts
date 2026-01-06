@@ -338,6 +338,46 @@ export class HardwareManager {
       }
     }
   }
+
+  setMockMode(enabled: boolean): boolean {
+    const prev = this.status.mockMode;
+    this.status.mockMode = enabled;
+
+    const settings = getSettings();
+    updateSettings({
+      hardware: {
+        ...settings.hardware,
+        mockMode: enabled
+      }
+    });
+
+    if (!enabled) {
+      try {
+        const platform = this.detectPlatform();
+        this.status.platform = platform.type;
+        this.status.gpioAvailable = platform.gpioSupported;
+        if (platform.gpioSupported) {
+          this.initializeGPIO();
+          if (this.coinCallback) {
+            this.setupCoinDetection(this.coinCallback);
+          }
+        }
+      } catch (e) {
+        this.status.mockMode = true;
+      }
+    } else {
+      if (this.rpio) {
+        try {
+          this.rpio.close(this.status.coinSlotPin);
+          this.rpio.close(this.status.statusLEDPin);
+        } catch {}
+        this.rpio = null;
+        this.status.rpioLoaded = false;
+      }
+    }
+
+    return prev !== this.status.mockMode;
+  }
 }
 
 // Export singleton instance
