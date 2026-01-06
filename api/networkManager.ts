@@ -344,14 +344,11 @@ iface ${interfaceName} inet static
   }
 
   private async installHotspotPackages(): Promise<void> {
-    const checks = [
-      execAsync('which hostapd').then(() => true).catch(() => false),
-      execAsync('which dnsmasq').then(() => true).catch(() => false),
-      execAsync('which iw').then(() => true).catch(() => false),
-    ];
-    const [hasHostapd, hasDnsmasq, hasIw] = await Promise.all(checks);
-    if (!hasHostapd || !hasDnsmasq) {
-      throw new Error('Required binaries missing: hostapd or dnsmasq');
+    const hostapdCmd = await this.getHostapdCmd();
+    const dnsmasqCmd = await this.getDnsmasqCmd();
+    const iwCmd = await this.getIwCmd();
+    if (!hostapdCmd || !dnsmasqCmd) {
+      console.log('hostapd/dnsmasq not found in PATH; proceeding without installation');
     }
     // Ensure hostapd is not masked and ready
     await execAsync('systemctl unmask hostapd || true');
@@ -466,6 +463,33 @@ address=/#/${config.ipAddress}
       '/usr/sbin/iptables-nft',
       '/usr/sbin/iptables-legacy'
     ];
+    for (const cmd of candidates) {
+      const ok = await execAsync(`${cmd} --version`).then(() => true).catch(() => false);
+      if (ok) return cmd;
+    }
+    return null;
+  }
+ 
+  private async getHostapdCmd(): Promise<string | null> {
+    const candidates = ['hostapd', '/usr/sbin/hostapd', '/sbin/hostapd', '/usr/bin/hostapd', '/bin/hostapd'];
+    for (const cmd of candidates) {
+      const ok = await execAsync(`${cmd} -v`).then(() => true).catch(() => false);
+      if (ok) return cmd;
+    }
+    return null;
+  }
+ 
+  private async getDnsmasqCmd(): Promise<string | null> {
+    const candidates = ['dnsmasq', '/usr/sbin/dnsmasq', '/sbin/dnsmasq', '/usr/bin/dnsmasq', '/bin/dnsmasq'];
+    for (const cmd of candidates) {
+      const ok = await execAsync(`${cmd} --version`).then(() => true).catch(() => false);
+      if (ok) return cmd;
+    }
+    return null;
+  }
+ 
+  private async getIwCmd(): Promise<string | null> {
+    const candidates = ['iw', '/usr/sbin/iw', '/sbin/iw', '/usr/bin/iw', '/bin/iw'];
     for (const cmd of candidates) {
       const ok = await execAsync(`${cmd} --version`).then(() => true).catch(() => false);
       if (ok) return cmd;
