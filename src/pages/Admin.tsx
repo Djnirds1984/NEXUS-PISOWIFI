@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { BarChart3, Wifi, Settings, DollarSign, HardDrive, Network, Database } from 'lucide-react';
+import { BarChart3, Wifi, Settings, DollarSign, HardDrive, Network, Database, Users, Activity } from 'lucide-react';
 import DashboardTab from '../components/admin/DashboardTab';
 import HardwareTab from '../components/admin/HardwareTab';
 import NetworkTab from '../components/admin/NetworkTab';
 import RatesTab from '../components/admin/RatesTab';
 import PortalTab from '../components/admin/PortalTab';
 import DatabaseTab from '../components/admin/DatabaseTab';
+import DevicesTab from '../components/admin/DevicesTab';
+import BandwidthTab from '../components/admin/BandwidthTab';
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -16,6 +18,8 @@ const AdminDashboard: React.FC = () => {
     { id: 'network', name: 'Network', icon: Network },
     { id: 'rates', name: 'Rates', icon: DollarSign },
     { id: 'portal', name: 'Portal', icon: Settings },
+    { id: 'devices', name: 'Devices', icon: Users },
+    { id: 'bandwidth', name: 'Bandwidth', icon: Activity },
     { id: 'database', name: 'Database', icon: Database },
   ];
 
@@ -33,6 +37,10 @@ const AdminDashboard: React.FC = () => {
         return <PortalTab />;
       case 'database':
         return <DatabaseTab />;
+      case 'devices':
+        return <DevicesTab />;
+      case 'bandwidth':
+        return <BandwidthTab />;
       default:
         return <DashboardTab />;
     }
@@ -119,6 +127,8 @@ function getTabDescription(tab: string): string {
     network: 'Manage network interfaces, VLANs, and hotspot settings',
     rates: 'Set pricing for different time periods',
     portal: 'Customize the user portal appearance and messages',
+    devices: 'Manage connected devices and settings',
+    bandwidth: 'Limit and monitor per-device bandwidth, manage QoS',
     database: 'Manage SQLite settings and backups'
   };
   return descriptions[tab as keyof typeof descriptions] || '';

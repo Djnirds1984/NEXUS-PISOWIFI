@@ -1,5 +1,5 @@
 import path from 'path';
-import { kvGet, kvSet, kvAll, sessionsInsert, sessionsUpdate, sessionsRemove, sessionsActive, sessionsAll, sessionsCleanupExpired, getDB } from './sqlite.js';
+import { kvGet, kvSet, kvAll, sessionsInsert, sessionsUpdate, sessionsRemove, sessionsActive, sessionsAll, sessionsCleanupExpired, getDB, devicesUpsert, devicesGet, devicesAll, devicesDelete, devicesUpdate } from './sqlite.js';
 
 // Define the database schema
 interface HardwareSettings {
@@ -59,6 +59,20 @@ interface DatabaseSchema {
     portal: PortalSettings;
   };
   sessions: Session[];
+}
+
+export interface Device {
+  macAddress: string;
+  ipAddress?: string;
+  hostname?: string;
+  firstSeen?: string;
+  lastSeen?: string;
+  connected?: boolean;
+  timeLimitMinutes?: number;
+  usageSeconds?: number;
+  notes?: string;
+  bandwidthCapKbps?: number;
+  priority?: number;
 }
 
 // Default database schema
@@ -161,4 +175,24 @@ export function getActiveSessions() {
 
 export function cleanupExpiredSessions() {
   sessionsCleanupExpired();
+}
+
+export function upsertDevice(device: Device) {
+  devicesUpsert(device);
+}
+
+export function getDevice(macAddress: string): Device | null {
+  return devicesGet(macAddress);
+}
+
+export function getDevices(): Device[] {
+  return devicesAll();
+}
+
+export function updateDevice(macAddress: string, updates: Partial<Device>) {
+  devicesUpdate(macAddress, updates);
+}
+
+export function deleteDevice(macAddress: string) {
+  devicesDelete(macAddress);
 }

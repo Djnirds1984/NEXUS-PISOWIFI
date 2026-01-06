@@ -18,6 +18,8 @@ import sessionRoutes from './routes/session.js'
 import adminRoutes from './routes/admin.js'
 import portalRoutes from './routes/portal.js'
 import dbRoutes from './routes/db.js'
+import devicesRoutes from './routes/devices.js'
+import qosRoutes from './routes/qos.js'
 import { getSettings } from './database.js'
 
 // for esm mode
@@ -44,6 +46,8 @@ app.use('/api/session', sessionRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/portal', portalRoutes)
 app.use('/api/db', dbRoutes)
+app.use('/api/devices', devicesRoutes)
+app.use('/api/qos', qosRoutes)
 
 const forceRedirect = process.env.CAPTIVE_FORCE_REDIRECT === 'true'
 const allowAdmin = process.env.CAPTIVE_ALLOW_ADMIN !== 'false'

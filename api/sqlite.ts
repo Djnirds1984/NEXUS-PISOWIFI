@@ -29,6 +29,19 @@ export function getDB(): Database.Database {
       active INTEGER,
       ipAddress TEXT
     );
+    CREATE TABLE IF NOT EXISTS devices (
+      macAddress TEXT PRIMARY KEY,
+      ipAddress TEXT,
+      hostname TEXT,
+      firstSeen TEXT,
+      lastSeen TEXT,
+      connected INTEGER,
+      timeLimitMinutes INTEGER,
+      usageSeconds INTEGER,
+      notes TEXT,
+      bandwidthCapKbps INTEGER,
+      priority INTEGER
+    );
   `);
   return db;
 }
@@ -104,4 +117,60 @@ export function sessionsCleanupExpired(): void {
   const dbi = getDB();
   const now = new Date().toISOString();
   dbi.prepare('DELETE FROM sessions WHERE endTime < ?').run(now);
+}
+
+export function devicesUpsert(device: any): void {
+  const dbi = getDB();
+  const existing = dbi.prepare('SELECT macAddress FROM devices WHERE macAddress=?').get(device.macAddress) as any;
+  if (existing) {
+    dbi.prepare(`
+      UPDATE devices SET
+        ipAddress=@ipAddress,
+        hostname=@hostname,
+        firstSeen=@firstSeen,
+        lastSeen=@lastSeen,
+        connected=@connected,
+        timeLimitMinutes=@timeLimitMinutes,
+        usageSeconds=@usageSeconds,
+        notes=@notes,
+        bandwidthCapKbps=@bandwidthCapKbps,
+        priority=@priority
+      WHERE macAddress=@macAddress
+    `).run({
+      ...device,
+      connected: device.connected ? 1 : 0
+    });
+  } else {
+    dbi.prepare(`
+      INSERT INTO devices(macAddress,ipAddress,hostname,firstSeen,lastSeen,connected,timeLimitMinutes,usageSeconds,notes,bandwidthCapKbps,priority)
+      VALUES(@macAddress,@ipAddress,@hostname,@firstSeen,@lastSeen,@connected,@timeLimitMinutes,@usageSeconds,@notes,@bandwidthCapKbps,@priority)
+    `).run({
+      ...device,
+      connected: device.connected ? 1 : 0
+    });
+  }
+}
+
+export function devicesGet(macAddress: string): any | null {
+  const dbi = getDB();
+  const row = dbi.prepare('SELECT * FROM devices WHERE macAddress=?').get(macAddress) as any;
+  if (!row) return null;
+  return { ...row, connected: !!row.connected };
+}
+
+export function devicesAll(): any[] {
+  const dbi = getDB();
+  const rows = dbi.prepare('SELECT * FROM devices').all() as any[];
+  return rows.map(r => ({ ...r, connected: !!r.connected }));
+}
+
+export function devicesDelete(macAddress: string): void {
+  const dbi = getDB();
+  dbi.prepare('DELETE FROM devices WHERE macAddress=?').run(macAddress);
+}
+
+export function devicesUpdate(macAddress: string, updates: Partial<any>): void {
+  const existing = devicesGet(macAddress);
+  if (!existing) return;
+  devicesUpsert({ ...existing, ...updates, macAddress });
 }

@@ -1,6 +1,6 @@
 import { exec, execSync } from 'child_process';
 import { promisify } from 'util';
-import { getSettings, updateSettings } from './database.js';
+import { getSettings, updateSettings, upsertDevice, getDevices, updateDevice } from './database.js';
 
 const execAsync = promisify(exec);
 
@@ -624,6 +624,99 @@ address=/#/${config.ipAddress}
     } catch (error) {
       console.error('Error getting iptables rules:', error);
       return [];
+    }
+  }
+
+  async listActiveDevices(): Promise<Array<{ macAddress: string; ipAddress: string; hostname?: string }>> {
+    const paths = [
+      '/var/lib/misc/dnsmasq.leases',
+      '/var/lib/dnsmasq/dnsmasq.leases',
+      '/var/run/dnsmasq/dnsmasq.leases'
+    ];
+    for (const p of paths) {
+      try {
+        const { stdout } = await execAsync(`cat ${p}`);
+        const lines = stdout.split('\n').filter(Boolean);
+        const res = lines.map(l => {
+          const parts = l.split(' ');
+          return { macAddress: parts[1], ipAddress: parts[2], hostname: parts[3] || '' };
+        });
+        return res;
+      } catch {}
+    }
+    try {
+      const { stdout } = await execAsync('arp -an');
+      const lines = stdout.split('\n').filter(Boolean);
+      const res = lines.map(l => {
+        const ipMatch = l.match(/\((\d+\.\d+\.\d+\.\d+)\)/);
+        const macMatch = l.match(/(([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})/);
+        return { macAddress: macMatch ? macMatch[1] : '', ipAddress: ipMatch ? ipMatch[1] : '' };
+      }).filter(x => x.macAddress && x.ipAddress);
+      return res;
+    } catch {
+      return [];
+    }
+  }
+
+  async refreshDeviceStatus(): Promise<void> {
+    const list = await this.listActiveDevices();
+    const now = new Date().toISOString();
+    for (const d of list) {
+      upsertDevice({
+        macAddress: d.macAddress,
+        ipAddress: d.ipAddress,
+        hostname: d.hostname || '',
+        lastSeen: now,
+        firstSeen: now,
+        connected: true
+      });
+    }
+    const all = getDevices();
+    for (const dev of all) {
+      const active = list.find(x => x.macAddress.toLowerCase() === dev.macAddress.toLowerCase());
+      updateDevice(dev.macAddress, {
+        connected: !!active,
+        lastSeen: active ? now : dev.lastSeen
+      });
+    }
+  }
+
+  async enableCakeQoS(params: { interface: string; bandwidthKbps: number; diffserv?: string }): Promise<void> {
+    const iface = params.interface;
+    const bw = params.bandwidthKbps;
+    const ds = params.diffserv || 'besteffort';
+    try {
+      await execAsync(`tc qdisc replace dev ${iface} root cake bandwidth ${bw}kbit ${ds} nat dual-srchost dual-dsthost`);
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  async disableCakeQoS(iface: string): Promise<void> {
+    try {
+      await execAsync(`tc qdisc del dev ${iface} root || true`);
+    } catch {}
+  }
+
+  async setDeviceBandwidthCap(iface: string, ip: string, capKbps: number): Promise<void> {
+    try {
+      await execAsync(`tc qdisc add dev ${iface} handle ffff: ingress || true`);
+      await execAsync(`tc filter replace dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} police rate ${capKbps}kbit burst 10k drop flowid :1`);
+      await execAsync(`tc qdisc replace dev ${iface} root handle 1: htb default 30 || true`);
+      const rate = Math.max(capKbps, 64);
+      await execAsync(`tc class replace dev ${iface} parent 1: classid 1:1 htb rate ${rate}kbit ceil ${rate}kbit`);
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  async getDeviceUsage(iface: string, ip: string): Promise<{ bytes: number }> {
+    try {
+      const { stdout } = await execAsync(`iptables -L FORWARD -v -n | grep ${ip} | awk '{print $2}' | head -n 1`);
+      const bytes = parseInt(stdout.trim(), 10);
+      return { bytes: isNaN(bytes) ? 0 : bytes };
+    } catch {
+      return { bytes: 0 };
     }
   }
 }
