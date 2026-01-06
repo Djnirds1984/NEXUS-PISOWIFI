@@ -17,6 +17,7 @@ import networkRoutes from './routes/network.js'
 import sessionRoutes from './routes/session.js'
 import adminRoutes from './routes/admin.js'
 import portalRoutes from './routes/portal.js'
+import { getSettings } from './database.js'
 
 // for esm mode
 const __filename = fileURLToPath(import.meta.url)
@@ -45,9 +46,26 @@ app.use('/api/portal', portalRoutes)
 const forceRedirect = process.env.CAPTIVE_FORCE_REDIRECT === 'true'
 const allowAdmin = process.env.CAPTIVE_ALLOW_ADMIN !== 'false'
 
+function getClientIp(req: Request): string {
+  const xf = (req.headers['x-forwarded-for'] as string) || ''
+  const ip = xf.split(',')[0]?.trim() || req.ip || ''
+  return ip.replace('::ffff:', '')
+}
+
+function sameSubnet(ip: string, gateway: string): boolean {
+  const a = ip.split('.')
+  const b = gateway.split('.')
+  if (a.length < 4 || b.length < 4) return false
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
+}
+
 app.use((req: Request, res: Response, next: NextFunction) => {
+  const settings = getSettings()
+  const clientIp = getClientIp(req)
+  const isCaptiveClient = sameSubnet(clientIp, settings.network.gateway)
   if (
     forceRedirect &&
+    isCaptiveClient &&
     req.method === 'GET' &&
     !req.path.startsWith('/api/') &&
     !req.path.startsWith('/portal') &&
