@@ -130,6 +130,7 @@ export class NetworkManager {
   }
 
   async checkInternetConnection(): Promise<boolean> {
+    if (process.platform === 'win32') return true;
     try {
       await execAsync('ping -c 1 8.8.8.8');
       return true;
@@ -148,6 +149,7 @@ export class NetworkManager {
   }
 
   async isCaptivePortalActive(): Promise<boolean> {
+    if (process.platform === 'win32') return false;
     try {
       // Check if iptables rules for captive portal are active
       const { stdout } = await execAsync('iptables -t nat -L PREROUTING -n');
@@ -164,6 +166,11 @@ export class NetworkManager {
     gateway?: string;
     dns?: string[];
   }): Promise<void> {
+    if (process.platform === 'win32') {
+      console.log(`Windows detected: Mocking WAN configuration for ${interfaceName}`, config);
+      return;
+    }
+
     try {
       if (config.type === 'dhcp') {
         await this.configureDHCP(interfaceName);
@@ -748,6 +755,19 @@ address=/#/${config.ipAddress}
     }
   }
 
+  private async getTcCmd(): Promise<string | null> {
+    const candidates = ['tc', '/usr/sbin/tc', '/sbin/tc', '/usr/bin/tc', '/bin/tc', '/usr/local/bin/tc', '/usr/local/sbin/tc'];
+    for (const cmd of candidates) {
+      try {
+        await execAsync(`${cmd} -V`);
+        return cmd;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
   async enableCakeQoS(params: { interface: string; bandwidthKbps: number; diffserv?: string }): Promise<void> {
     if (process.platform === 'win32') {
       console.log('Windows detected: Skipping CAKE QoS enablement (mock mode)');
@@ -759,11 +779,11 @@ address=/#/${config.ipAddress}
 
     try {
       // 1. Check if tc exists
-      try {
-        await execAsync('which tc');
-      } catch {
-        throw new Error('Traffic Control (tc) utility not found. Please install iproute2.');
+      const tc = await this.getTcCmd();
+      if (!tc) {
+        throw new Error('Traffic Control (tc) utility not found in standard paths (/usr/sbin/tc, /sbin/tc, etc). Please install iproute2.');
       }
+      console.log(`Using Traffic Control binary: ${tc}`);
 
       // 2. Check if interface exists
       try {
@@ -773,7 +793,7 @@ address=/#/${config.ipAddress}
       }
 
       // 3. Enable CAKE
-      await execAsync(`tc qdisc replace dev ${iface} root cake bandwidth ${bw}kbit ${ds} nat dual-srchost dual-dsthost`);
+      await execAsync(`${tc} qdisc replace dev ${iface} root cake bandwidth ${bw}kbit ${ds} nat dual-srchost dual-dsthost`);
     } catch (e: any) {
       // Capture stderr if available
       const errMsg = e.stderr ? `TC Error: ${e.stderr}` : (e.message || 'Unknown error');
@@ -788,7 +808,9 @@ address=/#/${config.ipAddress}
       return;
     }
     try {
-      await execAsync(`tc qdisc del dev ${iface} root || true`);
+      const tc = await this.getTcCmd();
+      if (!tc) return;
+      await execAsync(`${tc} qdisc del dev ${iface} root || true`);
     } catch {}
   }
 
@@ -798,11 +820,13 @@ address=/#/${config.ipAddress}
       return;
     }
     try {
-      await execAsync(`tc qdisc add dev ${iface} handle ffff: ingress || true`);
-      await execAsync(`tc filter replace dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} police rate ${capKbps}kbit burst 10k drop flowid :1`);
-      await execAsync(`tc qdisc replace dev ${iface} root handle 1: htb default 30 || true`);
+      const tc = await this.getTcCmd();
+      if (!tc) throw new Error('Traffic Control (tc) utility not found in standard paths');
+      await execAsync(`${tc} qdisc add dev ${iface} handle ffff: ingress || true`);
+      await execAsync(`${tc} filter replace dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} police rate ${capKbps}kbit burst 10k drop flowid :1`);
+      await execAsync(`${tc} qdisc replace dev ${iface} root handle 1: htb default 30 || true`);
       const rate = Math.max(capKbps, 64);
-      await execAsync(`tc class replace dev ${iface} parent 1: classid 1:1 htb rate ${rate}kbit ceil ${rate}kbit`);
+      await execAsync(`${tc} class replace dev ${iface} parent 1: classid 1:1 htb rate ${rate}kbit ceil ${rate}kbit`);
     } catch (e) {
       throw e;
     }

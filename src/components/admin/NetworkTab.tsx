@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, Network, Settings, Plus, Trash2, RefreshCw, Shield } from 'lucide-react';
+import { Wifi, Network, Settings, Plus, Trash2, RefreshCw, Shield, Globe } from 'lucide-react';
 
 interface NetworkInterface {
   name: string;
@@ -27,7 +27,16 @@ const NetworkTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showVLANForm, setShowVLANForm] = useState(false);
   const [showHotspotForm, setShowHotspotForm] = useState(false);
+  const [showWanForm, setShowWanForm] = useState(false);
   const [vlanForm, setVLANForm] = useState({ parentInterface: '', vlanId: '' });
+  const [wanForm, setWanForm] = useState({
+    interfaceName: '',
+    type: 'dhcp' as 'dhcp' | 'static',
+    ipAddress: '',
+    netmask: '',
+    gateway: '',
+    dns: '8.8.8.8, 8.8.4.4'
+  });
   const [hotspotForm, setHotspotForm] = useState({
     interface: '',
     ssid: 'PisoWiFi-Hotspot',
@@ -377,6 +386,121 @@ const NetworkTab: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* WAN Form Modal */}
+      {showWanForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Configure WAN Interface</h3>
+            <form onSubmit={handleConfigureWan}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Interface
+                  </label>
+                  <select
+                    value={wanForm.interfaceName}
+                    onChange={(e) => setWanForm({ ...wanForm, interfaceName: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="">Select interface</option>
+                    {networkStatus.interfaces.map(iface => (
+                      <option key={iface.name} value={iface.name}>
+                        {iface.name} ({iface.type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Connection Type
+                  </label>
+                  <select
+                    value={wanForm.type}
+                    onChange={(e) => setWanForm({ ...wanForm, type: e.target.value as 'dhcp' | 'static' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="dhcp">DHCP (Automatic)</option>
+                    <option value="static">Static IP</option>
+                  </select>
+                </div>
+
+                {wanForm.type === 'static' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        IP Address
+                      </label>
+                      <input
+                        type="text"
+                        value={wanForm.ipAddress}
+                        onChange={(e) => setWanForm({ ...wanForm, ipAddress: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. 192.168.1.100"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Netmask
+                      </label>
+                      <input
+                        type="text"
+                        value={wanForm.netmask}
+                        onChange={(e) => setWanForm({ ...wanForm, netmask: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. 255.255.255.0"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Gateway
+                      </label>
+                      <input
+                        type="text"
+                        value={wanForm.gateway}
+                        onChange={(e) => setWanForm({ ...wanForm, gateway: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. 192.168.1.1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        DNS Servers
+                      </label>
+                      <input
+                        type="text"
+                        value={wanForm.dns}
+                        onChange={(e) => setWanForm({ ...wanForm, dns: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g. 8.8.8.8, 8.8.4.4"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowWanForm(false)}
+                  className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  Save Configuration
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* VLAN Form Modal */}
       {showVLANForm && (
