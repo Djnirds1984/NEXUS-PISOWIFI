@@ -17,6 +17,7 @@ import networkRoutes from './routes/network.js'
 import sessionRoutes from './routes/session.js'
 import adminRoutes from './routes/admin.js'
 import portalRoutes from './routes/portal.js'
+import dbRoutes from './routes/db.js'
 import { getSettings } from './database.js'
 
 // for esm mode
@@ -42,6 +43,7 @@ app.use('/api/network', networkRoutes)
 app.use('/api/session', sessionRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/portal', portalRoutes)
+app.use('/api/db', dbRoutes)
 
 const forceRedirect = process.env.CAPTIVE_FORCE_REDIRECT === 'true'
 const allowAdmin = process.env.CAPTIVE_ALLOW_ADMIN !== 'false'

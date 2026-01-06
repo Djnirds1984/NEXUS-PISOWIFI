@@ -48,6 +48,26 @@ async function initializePisoWiFi() {
       console.warn('Captive portal enable failed (will require proper network config):', e instanceof Error ? e.message : e);
     }
     
+    try {
+      const settings = (await import('./database.js')).getSettings();
+      const net = settings.network;
+      const auto = process.env.AUTOSTART_HOTSPOT !== 'false';
+      if (auto) {
+        await networkManager.setupHotspot({
+          interface: net.lanInterface,
+          ssid: net.ssid || 'PisoWiFi-Hotspot',
+          password: net.security === 'open' ? '' : (net.password || 'pisowifi123'),
+          security: net.security || 'wpa2',
+          channel: net.channel || 6,
+          ipAddress: net.gateway,
+          dhcpRange: net.dhcpRange
+        });
+        console.log('✓ Hotspot autostart applied');
+      }
+    } catch (e) {
+      console.warn('Hotspot autostart failed:', e instanceof Error ? e.message : e);
+    }
+    
     console.log('✓ PisoWiFi system initialized successfully');
   } catch (error) {
     console.error('Failed to initialize PisoWiFi system:', error);

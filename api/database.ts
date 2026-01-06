@@ -1,6 +1,5 @@
-import { Low } from 'lowdb';
-import { JSONFile } from 'lowdb/node';
 import path from 'path';
+import { kvGet, kvSet, kvAll, sessionsInsert, sessionsUpdate, sessionsRemove, sessionsActive, sessionsAll, sessionsCleanupExpired, getDB } from './sqlite.js';
 
 // Define the database schema
 interface HardwareSettings {
@@ -15,6 +14,10 @@ interface NetworkSettings {
   lanInterface: string;
   gateway: string;
   dhcpRange: string;
+  ssid?: string;
+  password?: string;
+  security?: 'open' | 'wpa2';
+  channel?: number;
   vlanInterfaces: Array<{
     parent: string;
     vlanId: number;
@@ -72,6 +75,10 @@ const defaultData: DatabaseSchema = {
       lanInterface: 'wlan0',
       gateway: '10.0.0.1',
       dhcpRange: '10.0.0.10-10.0.0.250',
+      ssid: 'PisoWiFi-Hotspot',
+      password: 'pisowifi123',
+      security: 'wpa2',
+      channel: 6,
       vlanInterfaces: []
     },
     rates: {
@@ -91,22 +98,20 @@ const defaultData: DatabaseSchema = {
   sessions: []
 };
 
-// Initialize database
-const dbPath = path.join(process.cwd(), 'data', 'pisowifi.json');
-const adapter = new JSONFile<DatabaseSchema>(dbPath);
-export const db = new Low<DatabaseSchema>(adapter, defaultData);
+export const dbFilePath = path.join(process.cwd(), 'data', 'pisowifi.db');
 
 // Initialize database
 export async function initializeDatabase() {
   try {
-    await db.read();
-    
-    // If database is empty, write default data
-    if (!db.data) {
-      db.data = defaultData;
-      await db.write();
-    }
-    
+    getDB();
+    const existingHardware = kvGet('settings.hardware', null);
+    const existingNetwork = kvGet('settings.network', null);
+    const existingRates = kvGet('settings.rates', null);
+    const existingPortal = kvGet('settings.portal', null);
+    if (!existingHardware) kvSet('settings.hardware', defaultData.settings.hardware);
+    if (!existingNetwork) kvSet('settings.network', defaultData.settings.network);
+    if (!existingRates) kvSet('settings.rates', defaultData.settings.rates);
+    if (!existingPortal) kvSet('settings.portal', defaultData.settings.portal);
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -114,49 +119,46 @@ export async function initializeDatabase() {
   }
 }
 
+export function getDefaultSettings(): DatabaseSchema['settings'] {
+  return defaultData.settings;
+}
+
 // Database helper functions
 export function getSettings() {
-  return db.data.settings;
+  const hardware = kvGet('settings.hardware', defaultData.settings.hardware);
+  const network = kvGet('settings.network', defaultData.settings.network);
+  const rates = kvGet('settings.rates', defaultData.settings.rates);
+  const portal = kvGet('settings.portal', defaultData.settings.portal);
+  return { hardware, network, rates, portal };
 }
 
 export function updateSettings(settings: Partial<DatabaseSchema['settings']>) {
-  db.data.settings = { ...db.data.settings, ...settings };
-  db.write();
+  if (settings.hardware) kvSet('settings.hardware', settings.hardware);
+  if (settings.network) kvSet('settings.network', settings.network);
+  if (settings.rates) kvSet('settings.rates', settings.rates);
+  if (settings.portal) kvSet('settings.portal', settings.portal);
 }
 
 export function getSessions() {
-  return db.data.sessions;
+  return sessionsAll();
 }
 
 export function addSession(session: Session) {
-  db.data.sessions.push(session);
-  db.write();
+  sessionsInsert(session);
 }
 
 export function updateSession(macAddress: string, updates: Partial<Session>) {
-  const session = db.data.sessions.find(s => s.macAddress === macAddress);
-  if (session) {
-    Object.assign(session, updates);
-    db.write();
-  }
+  sessionsUpdate(macAddress, updates);
 }
 
 export function removeSession(macAddress: string) {
-  db.data.sessions = db.data.sessions.filter(s => s.macAddress !== macAddress);
-  db.write();
+  sessionsRemove(macAddress);
 }
 
 export function getActiveSessions() {
-  return db.data.sessions.filter(s => s.active);
+  return sessionsActive();
 }
 
 export function cleanupExpiredSessions() {
-  const now = new Date().toISOString();
-  db.data.sessions = db.data.sessions.filter(s => {
-    if (s.endTime < now) {
-      return false; // Remove expired sessions
-    }
-    return true;
-  });
-  db.write();
+  sessionsCleanupExpired();
 }

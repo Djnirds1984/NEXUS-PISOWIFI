@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { BarChart3, Wifi, Settings, DollarSign, HardDrive, Network } from 'lucide-react';
+import { BarChart3, Wifi, Settings, DollarSign, HardDrive, Network, Database } from 'lucide-react';
 import DashboardTab from '../components/admin/DashboardTab';
 import HardwareTab from '../components/admin/HardwareTab';
 import NetworkTab from '../components/admin/NetworkTab';
 import RatesTab from '../components/admin/RatesTab';
 import PortalTab from '../components/admin/PortalTab';
+import DatabaseTab from '../components/admin/DatabaseTab';
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -15,6 +16,7 @@ const AdminDashboard: React.FC = () => {
     { id: 'network', name: 'Network', icon: Network },
     { id: 'rates', name: 'Rates', icon: DollarSign },
     { id: 'portal', name: 'Portal', icon: Settings },
+    { id: 'database', name: 'Database', icon: Database },
   ];
 
   const renderTabContent = () => {
@@ -29,6 +31,8 @@ const AdminDashboard: React.FC = () => {
         return <RatesTab />;
       case 'portal':
         return <PortalTab />;
+      case 'database':
+        return <DatabaseTab />;
       default:
         return <DashboardTab />;
     }
@@ -114,7 +118,8 @@ function getTabDescription(tab: string): string {
     hardware: 'Configure GPIO pins and monitor hardware status',
     network: 'Manage network interfaces, VLANs, and hotspot settings',
     rates: 'Set pricing for different time periods',
-    portal: 'Customize the user portal appearance and messages'
+    portal: 'Customize the user portal appearance and messages',
+    database: 'Manage SQLite settings and backups'
   };
   return descriptions[tab as keyof typeof descriptions] || '';
 }
