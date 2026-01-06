@@ -27,6 +27,17 @@ const Portal: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [connecting, setConnecting] = useState(false);
+3b npm[2832]:     at NetworkManager.setupHotspot (/root/NEXUS-PISOWIFI/api/networkManag>
+Jan 06 14:24:48 rpi3b npm[2832]:     at async <anonymous> (/root/NEXUS-PISOWIFI/api/routes/network.ts:148:>
+Jan 06 14:27:55 rpi3b npm[2832]: Installing hostapd and dnsmasq...
+Jan 06 14:28:15 rpi3b npm[2832]: Error setting up hotspot: Error: Cannot verify AP mode support. Ensure iw>
+Jan 06 14:28:15 rpi3b npm[2832]:     at NetworkManager.verifyAPSupport (/root/NEXUS-PISOWIFI/api/networkMa>
+Jan 06 14:28:15 rpi3b npm[2832]:     at async NetworkManager.setupHotspot (/root/NEXUS-PISOWIFI/api/networ>
+Jan 06 14:28:15 rpi3b npm[2832]:     at async <anonymous> (/root/NEXUS-PISOWIFI/api/routes/network.ts:148:>
+Jan 06 14:28:15 rpi3b npm[2832]: Error setting up hotspot: Error: Hotspot setup failed: Cannot verify AP m>
+Jan 06 14:28:15 rpi3b npm[2832]:     at NetworkManager.setupHotspot (/root/NEXUS-PISOWIFI/api/networkManag>
+Jan 06 14:28:15 rpi3b npm[2832]:     at async <anonymous> (/root/NEXUS-PISOWIFI/api/routes/network.ts:148:>
+lines 1-24/24 (END)
   const [showCoinModal, setShowCoinModal] = useState(false);
   const [countdown, setCountdown] = useState(60);
   const [pesosInserted, setPesosInserted] = useState(0);

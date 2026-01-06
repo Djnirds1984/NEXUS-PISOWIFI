@@ -124,7 +124,9 @@ const NetworkTab: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to setup hotspot');
+        const data = await response.json().catch(() => null);
+        const msg = data?.error || 'Failed to setup hotspot';
+        throw new Error(msg);
       }
 
       await fetchNetworkStatus();

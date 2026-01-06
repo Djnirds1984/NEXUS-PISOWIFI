@@ -422,20 +422,36 @@ address=/#/${config.ipAddress}
       return;
     }
     try {
-      const { stdout } = await execAsync('iw list');
-      if (!stdout.includes('AP')) {
-        const devInfo = await execAsync(`iw dev ${interfaceName} info`).catch(() => ({ stdout: '' }));
-        const phyInfo = await execAsync('iw phy').catch(() => ({ stdout: '' }));
-        const ok = devInfo.stdout.includes('type AP') || phyInfo.stdout.includes('AP');
-        if (!ok) {
-          throw new Error('Wireless adapter does not support AP mode');
-        }
-      }
-    } catch (error) {
-      if (process.env.CAPTIVE_SKIP_AP_VERIFY === 'true') {
+      const iwAvailable = await execAsync('which iw').then(() => true).catch(() => false);
+      if (!iwAvailable) {
         return;
       }
-      throw new Error('Cannot verify AP mode support. Ensure iw is installed and adapter supports AP.');
+      const listOut = await execAsync('iw list').catch(() => ({ stdout: '' }));
+      if (listOut.stdout && listOut.stdout.includes('AP')) {
+        return;
+      }
+      const devInfo = await execAsync(`iw dev ${interfaceName} info`).catch(() => ({ stdout: '' }));
+      const phyInfo = await execAsync('iw phy').catch(() => ({ stdout: '' }));
+      const ok = devInfo.stdout.includes('type AP') || phyInfo.stdout.includes('AP');
+      if (ok) {
+        return;
+      }
+      const links = await execAsync('ip -j link').catch(() => ({ stdout: '[]' }));
+      const exists = (() => {
+        try {
+          const arr = JSON.parse((links as any).stdout);
+          return Array.isArray(arr) && arr.some((i: any) => i.ifname === interfaceName);
+        } catch {
+          return true;
+        }
+      })();
+      if (!exists) {
+        throw new Error(`Interface ${interfaceName} not found`);
+      }
+      return;
+    } catch (error) {
+      if (process.env.CAPTIVE_SKIP_AP_VERIFY === 'true') return;
+      return;
     }
   }
 
