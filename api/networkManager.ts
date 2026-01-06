@@ -590,6 +590,11 @@ address=/#/${config.ipAddress}
       // Allow traffic from this MAC address
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
+
+      // 1. Bypass DNAT (Captive Portal) for this MAC
+      await execAsync(`${ipt} -t nat -I PREROUTING -m mac --mac-source ${macAddress} -j ACCEPT`);
+
+      // 2. Allow Forwarding for this MAC
       await execAsync(`${ipt} -I FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
       
       console.log(`MAC address ${macAddress} allowed through captive portal`);
@@ -604,7 +609,16 @@ address=/#/${config.ipAddress}
       // Remove rules for this MAC address
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
-      await execAsync(`${ipt} -D FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
+
+      // 1. Remove DNAT bypass
+      try {
+        await execAsync(`${ipt} -t nat -D PREROUTING -m mac --mac-source ${macAddress} -j ACCEPT`);
+      } catch {}
+
+      // 2. Remove Forwarding allow
+      try {
+        await execAsync(`${ipt} -D FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
+      } catch {}
       
       console.log(`MAC address ${macAddress} blocked from captive portal`);
     } catch (error) {
