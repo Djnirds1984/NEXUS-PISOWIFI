@@ -83,7 +83,8 @@ export function sessionsInsert(session: any): void {
     VALUES(@macAddress,@startTime,@endTime,@pesos,@minutes,@active,@ipAddress)
   `).run({
     ...session,
-    active: session.active ? 1 : 0
+    active: session.active ? 1 : 0,
+    ipAddress: session.ipAddress || null
   });
 }
 
@@ -122,6 +123,21 @@ export function sessionsCleanupExpired(): void {
 export function devicesUpsert(device: any): void {
   const dbi = getDB();
   const existing = dbi.prepare('SELECT macAddress FROM devices WHERE macAddress=?').get(device.macAddress) as any;
+  
+  const safeDevice = {
+    macAddress: device.macAddress,
+    ipAddress: device.ipAddress || null,
+    hostname: device.hostname || '',
+    firstSeen: device.firstSeen || new Date().toISOString(),
+    lastSeen: device.lastSeen || new Date().toISOString(),
+    connected: device.connected ? 1 : 0,
+    timeLimitMinutes: device.timeLimitMinutes || 0,
+    usageSeconds: device.usageSeconds || 0,
+    notes: device.notes || '',
+    bandwidthCapKbps: device.bandwidthCapKbps || 0,
+    priority: device.priority || 0
+  };
+
   if (existing) {
     dbi.prepare(`
       UPDATE devices SET
@@ -136,18 +152,12 @@ export function devicesUpsert(device: any): void {
         bandwidthCapKbps=@bandwidthCapKbps,
         priority=@priority
       WHERE macAddress=@macAddress
-    `).run({
-      ...device,
-      connected: device.connected ? 1 : 0
-    });
+    `).run(safeDevice);
   } else {
     dbi.prepare(`
       INSERT INTO devices(macAddress,ipAddress,hostname,firstSeen,lastSeen,connected,timeLimitMinutes,usageSeconds,notes,bandwidthCapKbps,priority)
       VALUES(@macAddress,@ipAddress,@hostname,@firstSeen,@lastSeen,@connected,@timeLimitMinutes,@usageSeconds,@notes,@bandwidthCapKbps,@priority)
-    `).run({
-      ...device,
-      connected: device.connected ? 1 : 0
-    });
+    `).run(safeDevice);
   }
 }
 

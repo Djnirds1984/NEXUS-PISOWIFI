@@ -21,8 +21,9 @@ router.post('/cake/enable', async (req, res) => {
     } catch {}
     await networkManager.enableCakeQoS({ interface: String(iface), bandwidthKbps: Number(bandwidthKbps), diffserv });
     res.json({ success: true });
-  } catch {
-    res.status(500).json({ success: false, error: 'Failed to enable CAKE' });
+  } catch (e) {
+    console.error('Error enabling CAKE:', e);
+    res.status(500).json({ success: false, error: e instanceof Error ? e.message : 'Failed to enable CAKE' });
   }
 });
 
@@ -39,8 +40,9 @@ router.post('/cake/disable', async (req, res) => {
     } catch {}
     await networkManager.disableCakeQoS(String(iface));
     res.json({ success: true });
-  } catch {
-    res.status(500).json({ success: false, error: 'Failed to disable CAKE' });
+  } catch (e) {
+    console.error('Error disabling CAKE:', e);
+    res.status(500).json({ success: false, error: e instanceof Error ? e.message : 'Failed to disable CAKE' });
   }
 });
 

@@ -747,6 +747,10 @@ address=/#/${config.ipAddress}
   }
 
   async enableCakeQoS(params: { interface: string; bandwidthKbps: number; diffserv?: string }): Promise<void> {
+    if (process.platform === 'win32') {
+      console.log('Windows detected: Skipping CAKE QoS enablement (mock mode)');
+      return;
+    }
     const iface = params.interface;
     const bw = params.bandwidthKbps;
     const ds = params.diffserv || 'besteffort';
@@ -758,12 +762,20 @@ address=/#/${config.ipAddress}
   }
 
   async disableCakeQoS(iface: string): Promise<void> {
+    if (process.platform === 'win32') {
+      console.log('Windows detected: Skipping CAKE QoS disablement (mock mode)');
+      return;
+    }
     try {
       await execAsync(`tc qdisc del dev ${iface} root || true`);
     } catch {}
   }
 
   async setDeviceBandwidthCap(iface: string, ip: string, capKbps: number): Promise<void> {
+    if (process.platform === 'win32') {
+      console.log(`Windows detected: Skipping bandwidth cap for ${ip} (mock mode)`);
+      return;
+    }
     try {
       await execAsync(`tc qdisc add dev ${iface} handle ffff: ingress || true`);
       await execAsync(`tc filter replace dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} police rate ${capKbps}kbit burst 10k drop flowid :1`);

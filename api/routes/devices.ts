@@ -66,6 +66,7 @@ router.post('/', async (req, res) => {
     });
     res.json({ success: true });
   } catch (e) {
+    console.error('Error creating device:', e);
     res.status(500).json({ success: false, error: 'Failed to create device' });
   }
 });
@@ -98,7 +99,8 @@ router.put('/:mac', async (req, res) => {
     const timeRemaining = sessionManager.getSessionTimeRemaining(mac);
     res.json({ success: true, data: { timeRemaining } });
   } catch (e) {
-    res.status(500).json({ success: false, error: 'Failed to update device' });
+    console.error('Error updating device:', e);
+    res.status(500).json({ success: false, error: e instanceof Error ? e.message : 'Failed to update device' });
   }
 });
 
