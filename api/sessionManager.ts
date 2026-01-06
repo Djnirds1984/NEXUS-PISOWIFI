@@ -1,5 +1,5 @@
 import { networkManager } from './networkManager.js';
-import { addSession, updateSession, removeSession, getActiveSessions, cleanupExpiredSessions } from './database.js';
+import { addSession, updateSession, removeSession, getActiveSessions, cleanupExpiredSessions, getSessions, getSettings } from './database.js';
 
 export interface UserSession {
   macAddress: string;
@@ -131,7 +131,7 @@ export class SessionManager {
 
   private calculateSessionDuration(pesos: number): number {
     // Get rates configuration from database
-    const { rates } = require('./database.js').getSettings();
+    const { rates } = getSettings();
     
     // Find matching rate or use default calculation
     const rate = rates.rates.find((r: any) => r.pesos === pesos);
@@ -262,12 +262,12 @@ export class SessionManager {
   }
 
   getTotalRevenue(): number {
-    const sessions = require('./database.js').getSessions();
+    const sessions = getSessions();
     return sessions.reduce((sum: number, session: any) => sum + session.pesos, 0);
   }
 
   getRevenueForDate(date: Date): number {
-    const sessions = require('./database.js').getSessions();
+    const sessions = getSessions();
     const dateString = date.toISOString().split('T')[0];
     
     return sessions
@@ -276,7 +276,7 @@ export class SessionManager {
   }
 
   getActiveSessionsForDate(date: Date): number {
-    const sessions = require('./database.js').getSessions();
+    const sessions = getSessions();
     const dateString = date.toISOString().split('T')[0];
     
     return sessions.filter((session: any) => 

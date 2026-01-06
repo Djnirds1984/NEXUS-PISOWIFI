@@ -355,7 +355,12 @@ iface ${interfaceName} inet static
     // Ensure hostapd is not masked and ready
     await execAsync('systemctl unmask hostapd || true');
     await execAsync('systemctl disable wpa_supplicant || true');
+    await execAsync('systemctl stop wpa_supplicant || true');
+    await execAsync('systemctl stop dhcpcd || true');
+    await execAsync('systemctl stop NetworkManager || true');
     await execAsync('rfkill unblock wifi || true');
+    // Ensure dnsmasq loads configs from /etc/dnsmasq.d
+    await execAsync('grep -q "conf-dir=/etc/dnsmasq.d" /etc/dnsmasq.conf || echo "conf-dir=/etc/dnsmasq.d,*.conf" >> /etc/dnsmasq.conf');
   }
 
   private async configureHostapd(config: HotspotConfig): Promise<void> {
@@ -401,7 +406,11 @@ address=/#/${config.ipAddress}
     // Configure interface IP without editing system files
     await execAsync(`ip link set ${config.interface} down || true`);
     await execAsync(`ip addr flush dev ${config.interface} || true`);
-    await execAsync(`ip addr add ${config.ipAddress}/24 dev ${config.interface}`);
+    // Only add address if not already present
+    const { stdout } = await execAsync(`ip -4 addr show dev ${config.interface}`);
+    if (!stdout.includes(`${config.ipAddress}/24`)) {
+      await execAsync(`ip addr add ${config.ipAddress}/24 dev ${config.interface}`);
+    }
     await execAsync(`ip link set ${config.interface} up`);
   }
  
