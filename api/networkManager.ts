@@ -28,7 +28,8 @@ export interface NetworkStatus {
 export interface HotspotConfig {
   interface: string;
   ssid: string;
-  password: string;
+  password?: string;
+  security?: 'open' | 'wpa2';
   channel: number;
   ipAddress: string;
   dhcpRange: string;
@@ -348,6 +349,7 @@ iface ${interfaceName} inet static
   }
 
   private async configureHostapd(config: HotspotConfig): Promise<void> {
+    const isOpen = (config.security === 'open') || !config.password;
     const hostapdConfig = `
 interface=${config.interface}
 driver=nl80211
@@ -358,11 +360,11 @@ wmm_enabled=0
 macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
-wpa=2
-wpa_passphrase=${config.password}
-wpa_key_mgmt=WPA-PSK
-wpa_pairwise=TKIP
-rsn_pairwise=CCMP
+${isOpen ? 'wpa=0' : 'wpa=2'}
+${isOpen ? '' : `wpa_passphrase=${config.password}`}
+${isOpen ? '' : 'wpa_key_mgmt=WPA-PSK'}
+${isOpen ? '' : 'wpa_pairwise=TKIP'}
+${isOpen ? '' : 'rsn_pairwise=CCMP'}
 `;
 
     await execAsync(`echo "${hostapdConfig}" > /etc/hostapd/hostapd.conf`);

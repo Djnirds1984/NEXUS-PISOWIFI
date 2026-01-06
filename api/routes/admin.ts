@@ -11,13 +11,26 @@ router.get('/dashboard', async (req, res) => {
   try {
     const sessionStats = sessionManager.getSessionStats();
     const hardwareStatus = hardwareManager.getHardwareStatus();
-    const networkStatus = await networkManager.getNetworkStatus();
+    let networkStatus;
+    try {
+      networkStatus = await networkManager.getNetworkStatus();
+    } catch (e) {
+      networkStatus = {
+        interfaces: [],
+        defaultGateway: '',
+        dnsServers: [],
+        internetConnected: false,
+        hotspotActive: false,
+        captivePortalActive: false,
+      };
+    }
     
     // Calculate today's revenue
     const today = new Date();
     const todayRevenue = sessionManager.getRevenueForDate(today);
     const todayActiveSessions = sessionManager.getActiveSessionsForDate(today);
 
+    const mem = process.memoryUsage();
     const dashboardData = {
       sessions: {
         ...sessionStats,
@@ -33,7 +46,7 @@ router.get('/dashboard', async (req, res) => {
       },
       system: {
         uptime: process.uptime(),
-        memory: process.memoryUsage(),
+        memory: { used: mem.heapUsed, total: mem.heapTotal },
         timestamp: new Date().toISOString()
       }
     };

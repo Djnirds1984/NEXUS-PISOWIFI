@@ -126,12 +126,12 @@ router.delete('/vlan/:vlanName', async (req, res) => {
 // Setup hotspot
 router.post('/hotspot', async (req, res) => {
   try {
-    const { interface: interfaceName, ssid, password, channel, ipAddress, dhcpRange } = req.body;
+    const { interface: interfaceName, ssid, password, channel, ipAddress, dhcpRange, security } = req.body;
 
-    if (!interfaceName || !ssid || !password) {
+    if (!interfaceName || !ssid) {
       return res.status(400).json({
         success: false,
-        error: 'interface, ssid, and password are required'
+        error: 'interface and ssid are required'
       });
     }
 
@@ -139,6 +139,7 @@ router.post('/hotspot', async (req, res) => {
       interface: interfaceName,
       ssid,
       password,
+      security: (security === 'open' ? 'open' : 'wpa2') as 'open' | 'wpa2',
       channel: channel || 6,
       ipAddress: ipAddress || '10.0.0.1',
       dhcpRange: dhcpRange || '10.0.0.10-10.0.0.250'

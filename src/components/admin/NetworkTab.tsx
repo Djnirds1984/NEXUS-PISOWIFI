@@ -32,7 +32,8 @@ const NetworkTab: React.FC = () => {
     interface: '',
     ssid: 'PisoWiFi-Hotspot',
     password: 'pisowifi123',
-    channel: '6'
+    channel: '6',
+    security: 'wpa2' as 'wpa2' | 'open'
   });
 
   useEffect(() => {
@@ -116,7 +117,8 @@ const NetworkTab: React.FC = () => {
         body: JSON.stringify({
           interface: hotspotForm.interface,
           ssid: hotspotForm.ssid,
-          password: hotspotForm.password,
+          password: hotspotForm.security === 'open' ? '' : hotspotForm.password,
+          security: hotspotForm.security,
           channel: parseInt(hotspotForm.channel)
         }),
       });
@@ -475,6 +477,19 @@ const NetworkTab: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Security
+                  </label>
+                  <select
+                    value={hotspotForm.security}
+                    onChange={(e) => setHotspotForm({ ...hotspotForm, security: e.target.value as 'wpa2' | 'open' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="wpa2">WPA2-PSK</option>
+                    <option value="open">Open (no password)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Password
                   </label>
                   <input
@@ -483,7 +498,7 @@ const NetworkTab: React.FC = () => {
                     onChange={(e) => setHotspotForm({ ...hotspotForm, password: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Enter password"
-                    required
+                    disabled={hotspotForm.security === 'open'}
                   />
                 </div>
                 <div>
