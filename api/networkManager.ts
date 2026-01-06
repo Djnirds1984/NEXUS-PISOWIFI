@@ -310,6 +310,8 @@ iface ${interfaceName} inet static
       
       // Install required packages if not present
       await this.installHotspotPackages();
+      // Verify adapter supports AP mode
+      await this.verifyAPSupport(finalConfig.interface);
 
       // Configure hostapd
       await this.configureHostapd(finalConfig);
@@ -324,8 +326,10 @@ iface ${interfaceName} inet static
       await execAsync('sysctl -w net.ipv4.ip_forward=1');
 
       // Start services
+      await execAsync('systemctl stop hostapd || true');
+      await execAsync('systemctl stop dnsmasq || true');
       await execAsync('systemctl start hostapd');
-      await execAsync('systemctl start dnsmasq');
+      await execAsync('systemctl restart dnsmasq');
       await execAsync('systemctl enable hostapd');
       await execAsync('systemctl enable dnsmasq');
 
@@ -334,7 +338,8 @@ iface ${interfaceName} inet static
       console.log(`Hotspot configured: ${finalConfig.ssid} on ${finalConfig.interface}`);
     } catch (error) {
       console.error('Error setting up hotspot:', error);
-      throw error;
+      const message = (error as any)?.stderr || (error as any)?.stdout || (error as Error).message;
+      throw new Error(`Hotspot setup failed: ${String(message).trim()}`);
     }
   }
 
@@ -342,10 +347,15 @@ iface ${interfaceName} inet static
     try {
       await execAsync('which hostapd');
       await execAsync('which dnsmasq');
+      await execAsync('which iw');
     } catch (error) {
       console.log('Installing hostapd and dnsmasq...');
-      await execAsync('apt update && apt install -y hostapd dnsmasq');
+      await execAsync('apt update && apt install -y hostapd dnsmasq iw');
     }
+    // Ensure hostapd is not masked and ready
+    await execAsync('systemctl unmask hostapd || true');
+    await execAsync('systemctl disable wpa_supplicant || true');
+    await execAsync('rfkill unblock wifi || true');
   }
 
   private async configureHostapd(config: HotspotConfig): Promise<void> {
@@ -375,6 +385,7 @@ ${isOpen ? '' : 'rsn_pairwise=CCMP'}
     const [start, end] = config.dhcpRange.split('-');
     const dnsmasqConfig = `
 interface=${config.interface}
+bind-interfaces
 dhcp-range=${start},${end},255.255.255.0,24h
 dhcp-option=3,${config.ipAddress}
 dhcp-option=6,${config.ipAddress}
@@ -382,22 +393,27 @@ server=8.8.8.8
 server=8.8.4.4
 address=/#/${config.ipAddress}
 `;
-
-    await execAsync(`echo "${dnsmasqConfig}" > /etc/dnsmasq.conf`);
+    // Write to dedicated config to avoid overwriting global
+    await execAsync(`echo "${dnsmasqConfig}" > /etc/dnsmasq.d/pisowifi.conf`);
   }
 
   private async configureHotspotInterface(config: HotspotConfig): Promise<void> {
-    const interfaceConfig = `
-auto ${config.interface}
-iface ${config.interface} inet static
-    address ${config.ipAddress}
-    netmask 255.255.255.0
-    network 10.0.0.0
-    broadcast 10.0.0.255
-`;
-
-    await execAsync(`echo "${interfaceConfig}" >> /etc/network/interfaces`);
-    await execAsync(`ifconfig ${config.interface} ${config.ipAddress} netmask 255.255.255.0`);
+    // Configure interface IP without editing system files
+    await execAsync(`ip link set ${config.interface} down || true`);
+    await execAsync(`ip addr flush dev ${config.interface} || true`);
+    await execAsync(`ip addr add ${config.ipAddress}/24 dev ${config.interface}`);
+    await execAsync(`ip link set ${config.interface} up`);
+  }
+ 
+  private async verifyAPSupport(interfaceName: string): Promise<void> {
+    try {
+      const { stdout } = await execAsync('iw list');
+      if (!stdout.includes('AP')) {
+        throw new Error('Wireless adapter does not support AP mode');
+      }
+    } catch (error) {
+      throw new Error('Cannot verify AP mode support. Ensure iw is installed and adapter supports AP.');
+    }
   }
 
   async enableCaptivePortal(): Promise<void> {

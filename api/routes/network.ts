@@ -155,7 +155,7 @@ router.post('/hotspot', async (req, res) => {
     console.error('Error setting up hotspot:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to setup hotspot'
+      error: (error as any)?.message || 'Failed to setup hotspot'
     });
   }
 });
