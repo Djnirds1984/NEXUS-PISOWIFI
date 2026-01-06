@@ -42,6 +42,25 @@ app.use('/api/session', sessionRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/portal', portalRoutes)
 
+const forceRedirect = process.env.CAPTIVE_FORCE_REDIRECT === 'true'
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (
+    forceRedirect &&
+    req.method === 'GET' &&
+    !req.path.startsWith('/api/') &&
+    !req.path.startsWith('/portal') &&
+    !req.path.startsWith('/assets') &&
+    !req.path.startsWith('/favicon') &&
+    !req.path.startsWith('/manifest') &&
+    !req.path.startsWith('/@vite') &&
+    !req.path.startsWith('/index.html')
+  ) {
+    return res.redirect('/portal')
+  }
+  next()
+})
+
 /**
  * Captive portal detection endpoints
  */
@@ -59,6 +78,12 @@ app.get('/connecttest.txt', (req, res) => {
 })
 app.get('/redirect', (req, res) => {
   res.redirect('/portal')
+})
+app.get('/success', (req, res) => {
+  res.type('text/plain').send('Success')
+})
+app.get('/success.html', (req, res) => {
+  res.status(200).send('<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>')
 })
 
 /**
