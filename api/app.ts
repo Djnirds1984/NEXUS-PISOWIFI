@@ -43,6 +43,7 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/portal', portalRoutes)
 
 const forceRedirect = process.env.CAPTIVE_FORCE_REDIRECT === 'true'
+const allowAdmin = process.env.CAPTIVE_ALLOW_ADMIN !== 'false'
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (
@@ -50,6 +51,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     req.method === 'GET' &&
     !req.path.startsWith('/api/') &&
     !req.path.startsWith('/portal') &&
+    !(allowAdmin && req.path.startsWith('/admin')) &&
     !req.path.startsWith('/assets') &&
     !req.path.startsWith('/favicon') &&
     !req.path.startsWith('/manifest') &&
