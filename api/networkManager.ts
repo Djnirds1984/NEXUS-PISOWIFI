@@ -641,6 +641,17 @@ address=/#/${config.ipAddress}
       })).filter((x: any) => x.macAddress && x.ipAddress);
       if (res.length) return res;
     } catch {}
+    // Try global neighbor table (no dev filter)
+    try {
+      const { stdout } = await execAsync('ip -json neigh show');
+      const arr = JSON.parse(stdout);
+      const res = (Array.isArray(arr) ? arr : []).map((n: any) => ({
+        macAddress: (n.lladdr || '').toLowerCase(),
+        ipAddress: n.dst || '',
+        hostname: ''
+      })).filter((x: any) => x.macAddress && x.ipAddress);
+      if (res.length) return res;
+    } catch {}
     // Fallback: ip neigh (text)
     try {
       const { stdout } = await execAsync(`ip neigh show dev ${lan}`);

@@ -11,7 +11,12 @@ router.get('/', async (req, res) => {
     const list = getDevices();
     res.json({ success: true, data: list });
   } catch {
-    res.json({ success: true, data: [] });
+    try {
+      const list = getDevices();
+      res.json({ success: true, data: list });
+    } catch {
+      res.json({ success: true, data: [] });
+    }
   }
 });
 
