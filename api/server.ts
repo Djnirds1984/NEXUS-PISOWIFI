@@ -5,6 +5,7 @@ import app from './app.js';
 import { initializeDatabase } from './database.js';
 import { hardwareManager } from './hardwareManager.js';
 import { sessionManager } from './sessionManager.js';
+import { networkManager } from './networkManager.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -38,6 +39,14 @@ async function initializePisoWiFi() {
       // Handle coin detection - this could trigger session creation
       // For now, we'll just log it
     });
+    
+    // Ensure captive portal rules are enabled
+    try {
+      await networkManager.enableCaptivePortal();
+      console.log('✓ Captive portal enabled');
+    } catch (e) {
+      console.warn('Captive portal enable failed (will require proper network config):', e instanceof Error ? e.message : e);
+    }
     
     console.log('✓ PisoWiFi system initialized successfully');
   } catch (error) {

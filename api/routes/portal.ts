@@ -1,6 +1,7 @@
 import express from 'express';
 import { getSettings } from '../database.js';
 import { sessionManager } from '../sessionManager.js';
+import { resolveMACByIP } from '../utils/network.js';
 
 const router = express.Router();
 
@@ -27,16 +28,29 @@ router.get('/config', async (req, res) => {
   }
 });
 
+// Backward-compatible settings endpoint
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = getSettings();
+    res.json({
+      title: settings.portal.title,
+      backgroundImage: settings.portal.backgroundImage,
+      welcomeMessage: settings.portal.welcomeMessage,
+      theme: 'light'
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get portal settings' });
+  }
+});
+
 // Check connection status
 router.get('/status', async (req, res) => {
   try {
-    const macAddress = req.query.mac as string;
+    let macAddress = (req.query.mac as string) || '';
     
     if (!macAddress) {
-      return res.status(400).json({
-        success: false,
-        error: 'MAC address is required'
-      });
+      const ip = (req.ip || '').replace('::ffff:', '');
+      macAddress = (await resolveMACByIP(ip)) || '';
     }
 
     // Validate MAC address format
@@ -73,7 +87,12 @@ router.get('/status', async (req, res) => {
 // Connect to WiFi (start session)
 router.post('/connect', async (req, res) => {
   try {
-    const { macAddress, pesos } = req.body;
+    let { macAddress, pesos } = req.body;
+
+    if (!macAddress) {
+      const ip = (req.ip || '').replace('::ffff:', '');
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
 
     if (!macAddress || !pesos) {
       return res.status(400).json({
@@ -131,7 +150,12 @@ router.post('/connect', async (req, res) => {
 // Extend session
 router.post('/extend', async (req, res) => {
   try {
-    const { macAddress, pesos } = req.body;
+    let { macAddress, pesos } = req.body;
+
+    if (!macAddress) {
+      const ip = (req.ip || '').replace('::ffff:', '');
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
 
     if (!macAddress || !pesos) {
       return res.status(400).json({
@@ -211,7 +235,12 @@ router.get('/rates', async (req, res) => {
 // Disconnect from WiFi (end session)
 router.post('/disconnect', async (req, res) => {
   try {
-    const { macAddress } = req.body;
+    let { macAddress } = req.body;
+
+    if (!macAddress) {
+      const ip = (req.ip || '').replace('::ffff:', '');
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
 
     if (!macAddress) {
       return res.status(400).json({

@@ -27,6 +27,11 @@ const Portal: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [connecting, setConnecting] = useState(false);
+  const [showCoinModal, setShowCoinModal] = useState(false);
+  const [countdown, setCountdown] = useState(60);
+  const [pesosInserted, setPesosInserted] = useState(0);
+  const [eventSource, setEventSource] = useState<EventSource | null>(null);
+  const [rates, setRates] = useState<{ pesos: number; minutes: number }[]>([]);
 
   // Fetch portal settings and session info
   useEffect(() => {
@@ -44,19 +49,32 @@ const Portal: React.FC = () => {
   const fetchPortalData = async () => {
     try {
       setLoading(true);
-      const [settingsResponse, sessionResponse] = await Promise.all([
-        fetch('/api/portal/settings'),
-        fetch('/api/portal/status')
+      const [settingsResponse, sessionResponse, ratesResponse] = await Promise.all([
+        fetch('/api/portal/config'),
+        fetch('/api/portal/status'),
+        fetch('/api/portal/rates')
       ]);
 
       if (settingsResponse.ok) {
         const settings = await settingsResponse.json();
-        setPortalSettings(settings);
+        // config returns success/data
+        setPortalSettings(settings.data || settings);
       }
 
       if (sessionResponse.ok) {
-        const session = await sessionResponse.json();
-        setSessionInfo(session);
+        const status = await sessionResponse.json();
+        const data = status.data || status;
+        setSessionInfo({
+          macAddress: data.session?.macAddress || '',
+          timeRemaining: data.timeRemaining || 0,
+          isActive: data.connected || false,
+          totalPesos: data.session?.pesos || 0
+        });
+      }
+
+      if (ratesResponse.ok) {
+        const r = await ratesResponse.json();
+        setRates(r.data || []);
       }
     } catch (err) {
       console.error('Error fetching portal data:', err);
@@ -70,8 +88,14 @@ const Portal: React.FC = () => {
     try {
       const response = await fetch('/api/portal/status');
       if (response.ok) {
-        const session = await response.json();
-        setSessionInfo(session);
+        const status = await response.json();
+        const data = status.data || status;
+        setSessionInfo({
+          macAddress: data.session?.macAddress || '',
+          timeRemaining: data.timeRemaining || 0,
+          isActive: data.connected || false,
+          totalPesos: data.session?.pesos || 0
+        });
       }
     } catch (err) {
       console.error('Error fetching session info:', err);
@@ -86,7 +110,7 @@ const Portal: React.FC = () => {
       const response = await fetch('/api/portal/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
-      });
+      , body: JSON.stringify({ pesos: pesosInserted || 1 }) });
 
       const result = await response.json();
 
@@ -95,6 +119,12 @@ const Portal: React.FC = () => {
         setTimeout(() => {
           fetchSessionInfo();
         }, 1000);
+        // reset modal state
+        setShowCoinModal(false);
+        setPesosInserted(0);
+        setCountdown(60);
+        eventSource?.close();
+        setEventSource(null);
       } else {
         setError(result.error || 'Failed to connect');
       }
@@ -150,14 +180,68 @@ const Portal: React.FC = () => {
     }
   };
 
-  const formatTime = (minutes: number) => {
-    if (minutes <= 0) return '0m';
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    if (hours > 0) {
-      return `${hours}h ${mins}m`;
+  const formatTime = (seconds: number) => {
+    const s = Math.max(0, seconds);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const hh = h.toString().padStart(2, '0');
+    const mm = m.toString().padStart(2, '0');
+    const ss = sec.toString().padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  };
+
+  // Coin modal controls
+  const openCoinModal = () => {
+    setShowCoinModal(true);
+    setPesosInserted(0);
+    setCountdown(60);
+    const es = new EventSource('/api/hardware/coin/stream');
+    es.addEventListener('ping', () => {});
+    es.onmessage = (ev) => {
+      try {
+        const payload = JSON.parse(ev.data);
+        if (payload && payload.timestamp) {
+          setPesosInserted(prev => prev + 1);
+          setCountdown(60);
+        }
+      } catch {}
+    };
+    setEventSource(es);
+  };
+
+  useEffect(() => {
+    if (!showCoinModal) return;
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        const next = prev - 1;
+        if (next <= 0) {
+          // auto close when timeout without coins
+          eventSource?.close();
+          setEventSource(null);
+          setShowCoinModal(false);
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [showCoinModal, eventSource]);
+
+  const cancelCoinModal = () => {
+    eventSource?.close();
+    setEventSource(null);
+    setShowCoinModal(false);
+    setCountdown(60);
+    setPesosInserted(0);
+  };
+
+  const doneCoinModal = async () => {
+    if (pesosInserted <= 0) {
+      cancelCoinModal();
+      return;
     }
-    return `${mins}m`;
+    await handleConnect();
   };
 
   const backgroundStyle = portalSettings.backgroundImage 
@@ -216,27 +300,36 @@ const Portal: React.FC = () => {
                     Ready to Connect
                   </h2>
                   <p className={`text-sm ${isDarkTheme ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Insert coins and click connect to start your WiFi session
+                    Insert coins and click done to start your WiFi session
                   </p>
                 </div>
 
-                <button
-                  onClick={handleConnect}
-                  disabled={connecting}
-                  className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"
-                >
-                  {connecting ? (
-                    <>
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <Power className="w-5 h-5 mr-2" />
-                      Connect to WiFi
-                    </>
-                  )}
-                </button>
+                <div className="space-y-3">
+                  <button
+                    onClick={openCoinModal}
+                    className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"
+                  >
+                    <DollarSign className="w-5 h-5 mr-2" />
+                    Insert Coin
+                  </button>
+                  <button
+                    onClick={handleConnect}
+                    disabled={connecting}
+                    className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"
+                  >
+                    {connecting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Power className="w-5 h-5 mr-2" />
+                        Connect to WiFi
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             ) : (
               /* Connected State */
@@ -314,6 +407,43 @@ const Portal: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Coin Modal */}
+      {showCoinModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-20">
+          <div className={`${isDarkTheme ? 'bg-gray-800' : 'bg-white'} w-full max-w-md rounded-xl shadow-xl p-6`}>
+            <h3 className={`text-lg font-semibold mb-4 ${isDarkTheme ? 'text-white' : 'text-gray-900'}`}>Insert Coins</h3>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <Clock className="w-5 h-5 mr-2 text-blue-600" />
+                <span className={`${isDarkTheme ? 'text-gray-200' : 'text-gray-700'}`}>Time left to insert:</span>
+              </div>
+              <span className="font-bold text-lg text-blue-600">{countdown}s</span>
+            </div>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center">
+                <DollarSign className="w-5 h-5 mr-2 text-green-600" />
+                <span className={`${isDarkTheme ? 'text-gray-200' : 'text-gray-700'}`}>Coins inserted</span>
+              </div>
+              <span className="font-bold text-lg text-green-600">₱{pesosInserted}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={doneCoinModal}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200"
+              >
+                DONE
+              </button>
+              <button
+                onClick={cancelCoinModal}
+                className={`${isDarkTheme ? 'bg-gray-600 hover:bg-gray-700 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200`}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

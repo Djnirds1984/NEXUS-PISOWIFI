@@ -1,6 +1,7 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import { getSettings, updateSettings } from './database.js';
+import { coinEvents } from './coinEvents.js';
 
 export interface HardwareStatus {
   platform: string;
@@ -195,11 +196,7 @@ export class HardwareManager {
     this.coinCallback = callback;
 
     if (this.status.mockMode || !this.rpio) {
-      console.log('Coin detection running in mock mode');
-      // Optional simulation in mock mode only if enabled via env
-      if (process.env.SIMULATE_COINS === 'true') {
-        this.simulateCoinPulses();
-      }
+      console.log('Coin detection running in mock mode (simulation disabled)');
       return;
     }
 
@@ -216,7 +213,6 @@ export class HardwareManager {
     } catch (error) {
       console.error('Error setting up coin detection:', error);
       this.status.mockMode = true;
-      this.simulateCoinPulses();
     }
   }
 
@@ -239,20 +235,11 @@ export class HardwareManager {
     if (this.coinCallback) {
       this.coinCallback(pin);
     }
+    // Emit global coin event for subscribers
+    coinEvents.emit('coin', { pin, timestamp: now.toISOString() });
 
     // Visual feedback - blink status LED
     this.blinkStatusLED(200);
-  }
-
-  private simulateCoinPulses(): void {
-    // Simulate coin pulses for testing (every 30-60 seconds)
-    setInterval(() => {
-      if (Math.random() < 0.1) { // 10% chance every interval
-        this.handleCoinPulse(this.status.coinSlotPin);
-      }
-    }, 30000); // Check every 30 seconds
-
-    console.log('Coin pulse simulation started (mock mode)');
   }
 
   blinkStatusLED(duration: number = 500): void {

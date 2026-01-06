@@ -1,5 +1,6 @@
 import express from 'express';
 import { hardwareManager } from '../hardwareManager.js';
+import { coinEvents } from '../coinEvents.js';
 
 const router = express.Router();
 
@@ -125,37 +126,27 @@ router.post('/led/blink', async (req, res) => {
   }
 });
 
-// Simulate coin pulse (for testing)
-router.post('/coin/simulate', async (req, res) => {
-  try {
-    // This is a testing endpoint to simulate coin detection
-    // In production, this should be disabled or require authentication
-    if (process.env.NODE_ENV === 'production') {
-      return res.status(403).json({
-        success: false,
-        error: 'Coin simulation is not available in production'
-      });
-    }
-
-    // Simulate a coin pulse
-    if (hardwareManager.getHardwareStatus().mockMode) {
-      // In mock mode, trigger the coin detection callback
-      const status = hardwareManager.getHardwareStatus();
-      // @ts-ignore - accessing private property for testing
-      hardwareManager['handleCoinPulse'](status.coinSlotPin);
-    }
-
-    res.json({
-      success: true,
-      message: 'Coin pulse simulated'
-    });
-  } catch (error) {
-    console.error('Error simulating coin pulse:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to simulate coin pulse'
-    });
-  }
-});
-
 export default router;
+ 
+// Server-Sent Events: coin stream
+router.get('/coin/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const heartbeat = setInterval(() => {
+    res.write(`event: ping\ndata: ${Date.now()}\n\n`);
+  }, 25000);
+
+  const listener = (payload: any) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  coinEvents.on('coin', listener);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    coinEvents.off('coin', listener);
+  });
+});
