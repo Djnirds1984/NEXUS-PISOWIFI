@@ -78,6 +78,7 @@ router.get('/status', async (req, res) => {
   try {
     let macAddress = (req.query.mac as string) || '';
     let ip = (req.ip || '').replace('::ffff:', '');
+    const serverTime = Date.now();
     
     // Attempt resolution if MAC is missing
     if (!macAddress) {
@@ -133,6 +134,7 @@ router.get('/status', async (req, res) => {
 
     const isActive = session ? session.active : (macAddress ? sessionManager.isSessionActive(macAddress) : false);
     const timeRemaining = session ? sessionManager.getSessionTimeRemaining(session.macAddress) : 0;
+    const sessionEndTime = session ? session.endTime?.toISOString?.() : null;
 
     res.json({
       success: true,
@@ -141,7 +143,9 @@ router.get('/status', async (req, res) => {
         session: session || null,
         timeRemaining: isActive ? timeRemaining : 0,
         hasSession: !!session,
-        macAddress // Return resolved MAC
+        macAddress, // Return resolved MAC
+        serverTime, // For client synchronization
+        sessionEndTime // Helpful for UI and debugging
       }
     });
   } catch (error) {
@@ -222,13 +226,16 @@ router.post('/connect', async (req, res) => {
     }
 
     const timeRemaining = sessionManager.getSessionTimeRemaining(macAddress);
+    const serverTime = Date.now();
 
     res.json({
       success: true,
       message: `Connected successfully! Your session will last ${session.minutes} minutes.`,
       data: {
         session,
-        timeRemaining
+        timeRemaining,
+        serverTime,
+        sessionEndTime: session.endTime?.toISOString?.()
       }
     });
   } catch (error) {
@@ -296,12 +303,15 @@ router.post('/extend', async (req, res) => {
     }
 
     const timeRemaining = sessionManager.getSessionTimeRemaining(macAddress);
+    const serverTime = Date.now();
 
     res.json({
       success: true,
       message: `Session extended by ${additionalMinutes} minutes!`,
       data: {
-        timeRemaining
+        timeRemaining,
+        serverTime,
+        sessionEndTime: sessionManager.getSession(macAddress)?.endTime?.toISOString?.() || null
       }
     });
   } catch (error) {

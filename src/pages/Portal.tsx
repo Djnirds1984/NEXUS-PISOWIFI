@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket, RefreshCw } from 'lucide-react';
-import { formatTimeRemaining } from '../utils/timeUtils';
+import { formatTimeRemaining, calculateTimeProgress } from '../utils/timeUtils';
 
 interface PortalSettings {
   title: string;
@@ -14,6 +14,9 @@ interface SessionInfo {
   timeRemaining: number;
   isActive: boolean;
   totalPesos: number;
+  totalMinutes?: number;
+  serverTime?: number;
+  sessionEndTime?: string | null;
 }
 
 interface DeviceInfo {
@@ -41,6 +44,8 @@ const Portal: React.FC = () => {
   const [internetStatus, setInternetStatus] = useState<'checking' | 'online' | 'offline' | null>(null);
   const [verifyingConnection, setVerifyingConnection] = useState(false);
   const [mode, setMode] = useState<'connect' | 'extend'>('connect');
+  const [displayTimeRemaining, setDisplayTimeRemaining] = useState<number>(0);
+  const [syncAnchor, setSyncAnchor] = useState<{ serverMs: number; clientMs: number; remainingSec: number } | null>(null);
 
   // Check internet status when active
   useEffect(() => {
@@ -56,7 +61,7 @@ const Portal: React.FC = () => {
           } else {
              setInternetStatus('offline');
           }
-        } catch (e) {
+        } catch {
           setInternetStatus('offline');
         }
       };
@@ -97,7 +102,6 @@ const Portal: React.FC = () => {
     }
   };
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
-  const [rates, setRates] = useState<{ pesos: number; minutes: number }[]>([]);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [voucherCode, setVoucherCode] = useState('');
   const [redeemingVoucher, setRedeemingVoucher] = useState(false);
@@ -115,21 +119,31 @@ const Portal: React.FC = () => {
     }
   }, [sessionInfo?.isActive]);
 
+  // Time synchronization and countdown
   useEffect(() => {
-    if (!sessionInfo?.isActive) return;
-    const t = setInterval(() => {
-      setSessionInfo(prev => prev ? { ...prev, timeRemaining: Math.max(0, prev.timeRemaining - 1) } : prev);
-    }, 1000);
+    if (!syncAnchor) {
+      setDisplayTimeRemaining(sessionInfo?.timeRemaining || 0);
+      return;
+    }
+    const tick = () => {
+      const nowClient = Date.now();
+      const offsetMs = syncAnchor.serverMs - syncAnchor.clientMs;
+      const estimatedServerNow = nowClient + offsetMs;
+      const elapsedSec = Math.max(0, Math.floor((estimatedServerNow - syncAnchor.serverMs) / 1000));
+      const remaining = Math.max(0, syncAnchor.remainingSec - elapsedSec);
+      setDisplayTimeRemaining(remaining);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [sessionInfo?.isActive]);
+  }, [syncAnchor]);
 
   const fetchPortalData = async () => {
     try {
       setLoading(true);
-      const [settingsResponse, sessionResponse, ratesResponse, deviceInfoResponse] = await Promise.all([
+      const [settingsResponse, sessionResponse, deviceInfoResponse] = await Promise.all([
         fetch('/api/portal/config'),
         fetch('/api/portal/status'),
-        fetch('/api/portal/rates'),
         fetch('/api/portal/device-info')
       ]);
 
@@ -146,13 +160,21 @@ const Portal: React.FC = () => {
           macAddress: data.session?.macAddress || '',
           timeRemaining: data.timeRemaining || 0,
           isActive: data.connected || false,
-          totalPesos: data.session?.pesos || 0
+          totalPesos: data.session?.pesos || 0,
+          totalMinutes: data.session?.minutes || undefined,
+          serverTime: data.serverTime || undefined,
+          sessionEndTime: data.sessionEndTime ?? null
         });
-      }
-
-      if (ratesResponse.ok) {
-        const r = await ratesResponse.json();
-        setRates(r.data || []);
+        if (typeof data.serverTime === 'number') {
+          setSyncAnchor({
+            serverMs: data.serverTime,
+            clientMs: Date.now(),
+            remainingSec: data.timeRemaining || 0
+          });
+        } else {
+          setSyncAnchor(null);
+          setDisplayTimeRemaining(data.timeRemaining || 0);
+        }
       }
 
       if (deviceInfoResponse.ok) {
@@ -165,8 +187,8 @@ const Portal: React.FC = () => {
           refreshedAt: data.refreshedAt || new Date().toISOString()
         });
       }
-    } catch (err) {
-      console.error('Error fetching portal data:', err);
+    } catch {
+      console.error('Error fetching portal data');
       setError('Unable to load portal data');
     } finally {
       setLoading(false);
@@ -183,11 +205,25 @@ const Portal: React.FC = () => {
           macAddress: data.session?.macAddress || '',
           timeRemaining: data.timeRemaining || 0,
           isActive: data.connected || false,
-          totalPesos: data.session?.pesos || 0
+          totalPesos: data.session?.pesos || 0,
+          totalMinutes: data.session?.minutes || undefined,
+          serverTime: data.serverTime || undefined,
+          sessionEndTime: data.sessionEndTime ?? null
         });
+        if (typeof data.serverTime === 'number') {
+          setSyncAnchor({
+            serverMs: data.serverTime,
+            clientMs: Date.now(),
+            remainingSec: data.timeRemaining || 0
+          });
+        } else {
+          setSyncAnchor(null);
+          setDisplayTimeRemaining(data.timeRemaining || 0);
+        }
       }
-    } catch (err) {
-      console.error('Error fetching session info:', err);
+    } catch {
+      console.error('Error fetching session info');
+      setError('Failed to fetch session time data');
     }
   };
 
@@ -212,7 +248,7 @@ const Portal: React.FC = () => {
           refreshedAt: data.refreshedAt || new Date().toISOString()
         });
       }
-    } catch (err) {
+    } catch {
       setDeviceInfo(prev => prev || {
         ip: 'N/A',
         mac: 'N/A',
@@ -251,12 +287,19 @@ const Portal: React.FC = () => {
         setCountdown(60);
         eventSource?.close();
         setEventSource(null);
+        if (result.data?.serverTime) {
+          setSyncAnchor({
+            serverMs: result.data.serverTime,
+            clientMs: Date.now(),
+            remainingSec: result.data.timeRemaining || 0
+          });
+        }
       } else {
         setError(result.error || 'Failed to connect');
       }
-    } catch (err) {
+    } catch {
       setError('Connection failed');
-      console.error('Connection error:', err);
+      console.error('Connection error');
     } finally {
       setConnecting(false);
     }
@@ -297,12 +340,19 @@ const Portal: React.FC = () => {
         setTimeout(() => {
           fetchSessionInfo();
         }, 1000);
+        if (result.data?.serverTime) {
+          setSyncAnchor({
+            serverMs: result.data.serverTime,
+            clientMs: Date.now(),
+            remainingSec: result.data.timeRemaining || 0
+          });
+        }
       } else {
         setError(result.error || 'Failed to extend session');
       }
-    } catch (err) {
+    } catch {
       setError('Extension failed');
-      console.error('Extension error:', err);
+      console.error('Extension error');
     }
   };
 
@@ -323,8 +373,8 @@ const Portal: React.FC = () => {
         setError(data.error || 'System busy, please try again.');
         return;
       }
-    } catch (e) {
-      console.error('Failed to start coin session', e);
+    } catch {
+      console.error('Failed to start coin session');
       // Fallback: allow opening modal even if API fails (e.g. mock mode issues)
     }
 
@@ -345,7 +395,9 @@ const Portal: React.FC = () => {
           }
           setCountdown(60);
         }
-      } catch {}
+      } catch {
+        void 0;
+      }
     };
     setEventSource(es);
   };
@@ -426,7 +478,7 @@ const Portal: React.FC = () => {
       } else {
         setError(data.error || 'Failed to redeem voucher');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred while redeeming voucher');
     } finally {
       setRedeemingVoucher(false);
@@ -461,19 +513,21 @@ const Portal: React.FC = () => {
       )}
       
       {/* Sticky Time Header */}
-      {sessionInfo?.isActive && (
+      {sessionInfo && (
         <div className={`fixed top-0 left-0 right-0 z-50 px-4 py-3 shadow-lg backdrop-blur-md transition-colors duration-300 ${
           isDarkTheme ? 'bg-gray-900/90 text-white border-b border-gray-700' : 'bg-white/90 text-gray-900 border-b border-gray-200'
         }`}>
           <div className="max-w-md mx-auto flex justify-between items-center">
              <div className="flex items-center space-x-2">
-               <Clock className={`w-5 h-5 ${sessionInfo.timeRemaining < 300 ? 'text-red-500 animate-pulse' : 'text-blue-500'}`} />
-               <span className="font-semibold text-sm uppercase tracking-wider opacity-80">Time Remaining</span>
+               <Clock className={`w-5 h-5 ${displayTimeRemaining < 300 && sessionInfo.isActive ? 'text-red-500 animate-pulse' : 'text-blue-500'}`} />
+               <span className="font-semibold text-sm uppercase tracking-wider opacity-80">
+                 {sessionInfo.isActive ? 'Time Remaining' : displayTimeRemaining > 0 ? 'Time Remaining' : 'Time Status'}
+               </span>
              </div>
              <span className={`font-mono font-bold text-2xl tracking-widest ${
-               sessionInfo.timeRemaining < 300 ? 'text-red-500 animate-pulse' : (isDarkTheme ? 'text-white' : 'text-gray-900')
+               displayTimeRemaining < 300 && sessionInfo.isActive ? 'text-red-500 animate-pulse' : (isDarkTheme ? 'text-white' : 'text-gray-900')
              }`}>
-               {formatTimeRemaining(sessionInfo.timeRemaining)}
+               {formatTimeRemaining(displayTimeRemaining)}
              </span>
           </div>
         </div>
@@ -530,6 +584,22 @@ const Portal: React.FC = () => {
             {!sessionInfo?.isActive ? (
               /* Not Connected State */
               <div className="text-center">
+                <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 mb-4`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center">
+                      <Clock className="w-5 h-5 mr-2 text-blue-600" />
+                      <span className={`font-medium ${isDarkTheme ? 'text-gray-200' : 'text-gray-700'}`}>
+                        Time Status
+                      </span>
+                    </div>
+                    <span className="font-bold text-2xl font-mono tracking-wider text-gray-600">
+                      {formatTimeRemaining(displayTimeRemaining)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {displayTimeRemaining > 0 ? 'Session pending' : 'No active session'}
+                  </div>
+                </div>
                 <div className="mb-6">
                   <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Wifi className="w-8 h-8 text-gray-400" />
@@ -629,11 +699,20 @@ const Portal: React.FC = () => {
                         Time Remaining
                       </span>
                     </div>
-                    <span className={`font-bold text-4xl font-mono tracking-wider ${sessionInfo.timeRemaining > 300 ? 'text-green-600' : 'text-red-600 animate-pulse'}`}>
-                      {formatTimeRemaining(sessionInfo.timeRemaining)}
+                    <span className={`font-bold text-4xl font-mono tracking-wider ${displayTimeRemaining > 300 ? 'text-green-600' : 'text-red-600 animate-pulse'}`}>
+                      {formatTimeRemaining(displayTimeRemaining)}
                     </span>
                   </div>
                   
+                  {typeof sessionInfo.totalMinutes === 'number' && sessionInfo.totalMinutes > 0 && (
+                    <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${calculateTimeProgress(displayTimeRemaining, (sessionInfo.totalMinutes || 0) * 60)}%` }}
+                      />
+                    </div>
+                  )}
+                 
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
                       <DollarSign className="w-5 h-5 mr-2 text-green-600" />
