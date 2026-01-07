@@ -334,7 +334,18 @@ const Portal: React.FC = () => {
 
       if (data.success) {
         setVoucherCode('');
-        fetchSessionInfo(); // Refresh session info
+        // Immediately update session info
+        fetchSessionInfo();
+        // Force a connectivity check or navigation
+        if (data.data && data.data.session && data.data.session.active) {
+             setSessionInfo(prev => ({
+                ...prev,
+                isActive: true,
+                macAddress: data.data.session.macAddress,
+                timeRemaining: data.data.timeRemaining || 0,
+                totalPesos: data.data.session.pesos
+             } as SessionInfo));
+        }
       } else {
         setError(data.error || 'Failed to redeem voucher');
       }
@@ -534,6 +545,14 @@ const Portal: React.FC = () => {
 
                 {/* Action Buttons */}
                 <div className="space-y-3">
+                  <a
+                    href="http://google.com"
+                    className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center no-underline"
+                  >
+                    <Wifi className="w-5 h-5 mr-2" />
+                    Go to Internet
+                  </a>
+
                   <button
                     onClick={handleExtendSession}
                     className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"

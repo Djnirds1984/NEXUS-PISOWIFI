@@ -411,7 +411,6 @@ dhcp-option=3,${config.ipAddress}
 dhcp-option=6,${config.ipAddress}
 server=8.8.8.8
 server=8.8.4.4
-address=/#/${config.ipAddress}
 `;
     // Write to dedicated config to avoid overwriting global
     await execAsync(`echo "${dnsmasqConfig}" > /etc/dnsmasq.d/pisowifi.conf`);
