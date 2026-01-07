@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BarChart3, Wifi, Settings, DollarSign, HardDrive, Network, Database, Users, Activity, Ticket } from 'lucide-react';
+import { BarChart3, Wifi, Settings, DollarSign, HardDrive, Network, Database, Users, Activity, Ticket, FileText } from 'lucide-react';
 import DashboardTab from '../components/admin/DashboardTab';
 import HardwareTab from '../components/admin/HardwareTab';
 import NetworkTab from '../components/admin/NetworkTab';
@@ -9,6 +9,7 @@ import DatabaseTab from '../components/admin/DatabaseTab';
 import DevicesTab from '../components/admin/DevicesTab';
 import BandwidthTab from '../components/admin/BandwidthTab';
 import VoucherTab from '../components/admin/VoucherTab';
+import LogsTab from '../components/admin/LogsTab';
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -22,6 +23,7 @@ const AdminDashboard: React.FC = () => {
     { id: 'devices', name: 'Devices', icon: Users },
     { id: 'bandwidth', name: 'Bandwidth', icon: Activity },
     { id: 'vouchers', name: 'Vouchers', icon: Ticket },
+    { id: 'logs', name: 'System Logs', icon: FileText },
     { id: 'database', name: 'Database', icon: Database },
   ];
 
@@ -45,6 +47,8 @@ const AdminDashboard: React.FC = () => {
         return <BandwidthTab />;
       case 'vouchers':
         return <VoucherTab />;
+      case 'logs':
+        return <LogsTab />;
       default:
         return <DashboardTab />;
     }

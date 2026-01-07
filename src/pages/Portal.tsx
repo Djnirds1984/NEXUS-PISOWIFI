@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket } from 'lucide-react';
+import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket, RefreshCw } from 'lucide-react';
 
 interface PortalSettings {
   title: string;
@@ -38,6 +38,7 @@ const Portal: React.FC = () => {
   const [pesosInserted, setPesosInserted] = useState(0);
   const [countdown, setCountdown] = useState(60);
   const [internetStatus, setInternetStatus] = useState<'checking' | 'online' | 'offline' | null>(null);
+  const [verifyingConnection, setVerifyingConnection] = useState(false);
 
   // Check internet status when active
   useEffect(() => {
@@ -58,10 +59,41 @@ const Portal: React.FC = () => {
         }
       };
       check();
-      const interval = setInterval(check, 10000);
+      const interval = setInterval(check, 5000); // Check every 5 seconds
       return () => clearInterval(interval);
     }
   }, [sessionInfo?.isActive]);
+
+  const handleGoToInternet = async () => {
+    setVerifyingConnection(true);
+    try {
+      // Force a check immediately
+      const res = await fetch('/api/portal/check-internet');
+      const data = await res.json();
+      
+      if (data.connected) {
+        window.location.href = 'http://google.com';
+      } else {
+        setError('Internet is not yet ready. Please wait a moment...');
+        // Try again in 2 seconds
+        setTimeout(async () => {
+           try {
+             const res2 = await fetch('/api/portal/check-internet');
+             const data2 = await res2.json();
+             if (data2.connected) {
+               window.location.href = 'http://google.com';
+             } else {
+               setError('Still connecting... Please try again in a few seconds.');
+             }
+           } catch (e) {}
+        }, 2000);
+      }
+    } catch (err) {
+      setError('Failed to verify connection.');
+    } finally {
+      setVerifyingConnection(false);
+    }
+  };
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [rates, setRates] = useState<{ pesos: number; minutes: number }[]>([]);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
@@ -578,13 +610,25 @@ const Portal: React.FC = () => {
 
                 {/* Action Buttons */}
                 <div className="space-y-3">
-                  <a
-                    href="http://google.com"
-                    className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center no-underline"
+                  <button
+                    onClick={handleGoToInternet}
+                    disabled={verifyingConnection || internetStatus === 'offline'}
+                    className={`w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center ${
+                      (verifyingConnection || internetStatus === 'offline') ? 'opacity-75 cursor-not-allowed' : ''
+                    }`}
                   >
-                    <Wifi className="w-5 h-5 mr-2" />
-                    Go to Internet
-                  </a>
+                    {verifyingConnection ? (
+                      <>
+                        <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                        Verifying Connection...
+                      </>
+                    ) : (
+                      <>
+                        <Wifi className="w-5 h-5 mr-2" />
+                        Go to Internet
+                      </>
+                    )}
+                  </button>
 
                   <button
                     onClick={handleExtendSession}

@@ -1,9 +1,12 @@
 import express from 'express';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { getSettings, updateSettings } from '../database.js';
 import { sessionManager } from '../sessionManager.js';
 import { hardwareManager } from '../hardwareManager.js';
 import { networkManager } from '../networkManager.js';
 
+const execAsync = promisify(exec);
 const router = express.Router();
 
 // Get dashboard statistics
@@ -250,32 +253,41 @@ router.post('/settings', async (req, res) => {
   }
 });
 
-// Get system logs (simplified - in production you'd use a proper logging system)
+// Get system logs
 router.get('/logs', async (req, res) => {
   try {
-    const { limit = 100 } = req.query;
-    const maxLogs = Math.min(parseInt(limit as string) || 100, 1000);
+    const service = (req.query.service as string) || 'dnsmasq';
+    const lines = (req.query.lines as string) || '50';
+    
+    // Sanitize input to prevent command injection
+    const allowedServices = ['dnsmasq', 'hostapd', 'pisowifi', 'nexus-pisowifi', 'dhcpcd', 'networking'];
+    if (!allowedServices.includes(service)) {
+      return res.status(400).json({ success: false, error: 'Invalid service name' });
+    }
+    
+    const numLines = parseInt(lines, 10);
+    if (isNaN(numLines) || numLines < 1 || numLines > 500) {
+      return res.status(400).json({ success: false, error: 'Invalid line count (1-500)' });
+    }
 
-    // This is a simplified log system
-    // In production, you'd want to use a proper logging library
-    const logs = [
-      {
-        timestamp: new Date().toISOString(),
-        level: 'info',
-        message: 'System logs endpoint accessed',
-        source: 'admin'
-      }
-    ];
+    if (process.platform === 'win32') {
+      // Mock logs for Windows
+      return res.json({
+        success: true,
+        data: `[MOCK LOGS for ${service}]\nWindows environment detected.\nLogs are not available via journalctl.\nTimestamp: ${new Date().toISOString()}`
+      });
+    }
 
+    const { stdout } = await execAsync(`journalctl -u ${service} -n ${numLines} --no-pager`);
     res.json({
       success: true,
-      data: logs.slice(0, maxLogs)
+      data: stdout
     });
   } catch (error) {
-    console.error('Error getting logs:', error);
+    console.error('Error fetching logs:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to get logs'
+      error: 'Failed to fetch logs'
     });
   }
 });
