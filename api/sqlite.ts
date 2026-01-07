@@ -199,7 +199,8 @@ export function vouchersInsert(voucher: any): void {
     VALUES(@code,@amount,@isUsed,@dateGenerated,@dateUsed)
   `).run({
     ...voucher,
-    isUsed: voucher.isUsed ? 1 : 0
+    isUsed: voucher.isUsed ? 1 : 0,
+    dateUsed: voucher.dateUsed || null
   });
 }
 

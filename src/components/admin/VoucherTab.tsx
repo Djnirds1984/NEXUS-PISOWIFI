@@ -42,7 +42,10 @@ const VoucherTab: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(generateConfig)
       });
-      if (!res.ok) throw new Error('Failed to generate vouchers');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to generate vouchers');
+      }
       fetchVouchers();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
