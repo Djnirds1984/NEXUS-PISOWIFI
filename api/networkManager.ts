@@ -557,8 +557,10 @@ server=8.8.4.4
       }
 
       // 6. BLOCK ALL OTHER INTERNET FORWARDING (Policy DROP)
-      await execAsync(`${ipt} -P FORWARD DROP`);
-
+      // Instead of Policy DROP, we use a catch-all DROP rule at the end of the chain
+      // This is safer if we flush rules dynamically
+      // await execAsync(`${ipt} -P FORWARD DROP`); // Safer to append a DROP rule
+      
       // 7. HTTP Redirect (Captive Portal)
       // Use -I to ensure it's before any potential accept rules if we re-run, 
       // though we flushed so it's fine. Using -A is standard for the chain base.
@@ -575,14 +577,18 @@ server=8.8.4.4
            await execAsync(`${ipt} -t nat -A POSTROUTING -o ${settings.network.wanInterface} -j MASQUERADE`);
          } catch {}
       }
+      
+      // 9. Append Catch-All DROP for FORWARD chain
+      // This ensures that anything not explicitly allowed (by allowMACAddress) is dropped
+      await execAsync(`${ipt} -A FORWARD -j DROP`);
 
       // Store rules for reference (though flushing wipes them, so this is just for state tracking)
       this.iptablesRules = [
-        'Policy FORWARD DROP',
         'Allow DNS',
         'Allow Portal',
         'Redirect HTTP',
-        'Masquerade'
+        'Masquerade',
+        'Drop All Else'
       ];
 
       console.log('Captive portal enabled with strict blocking rules');
@@ -606,6 +612,11 @@ server=8.8.4.4
     try {
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
+
+      // Reset default policies to ACCEPT before flushing
+      await execAsync(`${ipt} -P FORWARD ACCEPT`);
+      await execAsync(`${ipt} -P INPUT ACCEPT`);
+      await execAsync(`${ipt} -P OUTPUT ACCEPT`);
 
       // Clear NAT rules
       await execAsync(`${ipt} -t nat -F PREROUTING`);
@@ -640,11 +651,15 @@ server=8.8.4.4
 
       // 2. Bypass DNAT (Captive Portal) for this MAC
       // We use -I to insert at the top, ensuring it runs before the captive portal redirect
-      await execAsync(`${ipt} -t nat -I PREROUTING -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+      await execAsync(`${ipt} -t nat -I PREROUTING 1 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
 
       // 3. Allow Forwarding for this MAC
-      await execAsync(`${ipt} -I FORWARD -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+      // Insert at position 1 to bypass the catch-all DROP at the end
+      await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
       
+      // 4. Also allow return traffic specifically for this MAC (optional but safe)
+      // await execAsync(`${ipt} -I FORWARD 1 -d ${ip_of_device} -j ACCEPT`); // Hard to know IP here reliably, relying on ESTABLISHED rule.
+
       console.log(`MAC address ${normalizedMac} allowed through captive portal`);
     } catch (error) {
       console.error('Error allowing MAC address:', error);

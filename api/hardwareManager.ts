@@ -20,12 +20,21 @@ export interface PlatformInfo {
   description: string;
 }
 
+export interface CoinSession {
+  macAddress: string;
+  ipAddress: string;
+  amount: number;
+  lastActivity: Date;
+}
+
 export class HardwareManager {
   private rpio: any = null;
   private coinCallback: ((pin: number) => void) | null = null;
   private status: HardwareStatus;
   private coinPulseCount: number = 0;
   private lastPulseReset: Date = new Date();
+  private activeCoinSession: CoinSession | null = null;
+  private coinSessionTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
     this.status = {
@@ -227,6 +236,15 @@ export class HardwareManager {
 
     this.status.totalCoinsToday++;
 
+    // Update active coin session
+    if (this.activeCoinSession) {
+      this.activeCoinSession.amount++;
+      this.refreshCoinSession(); // Keep session alive
+      console.log(`Credit added to session ${this.activeCoinSession.macAddress}: ${this.activeCoinSession.amount}`);
+    } else {
+      console.log(`Coin pulse detected on pin ${pin} (${this.coinPulseCount} total) - No active session`);
+    }
+
     console.log(`Coin pulse detected on pin ${pin} (${this.coinPulseCount} total, ${this.status.totalCoinsToday} today)`);
 
     // Trigger callback
@@ -234,7 +252,12 @@ export class HardwareManager {
       this.coinCallback(pin);
     }
     // Emit global coin event for subscribers
-    coinEvents.emit('coin', { pin, timestamp: now.toISOString() });
+    coinEvents.emit('coin', { 
+      pin, 
+      timestamp: now.toISOString(),
+      amount: this.activeCoinSession?.amount || 0,
+      targetMac: this.activeCoinSession?.macAddress
+    });
 
     // Visual feedback - blink status LED
     this.blinkStatusLED(200);
@@ -375,6 +398,64 @@ export class HardwareManager {
     }
 
     return prev !== this.status.mockMode;
+  }
+
+  public startCoinSession(macAddress: string, ipAddress: string): boolean {
+    if (this.activeCoinSession) {
+      // If same user, just refresh
+      if (this.activeCoinSession.macAddress === macAddress) {
+        this.refreshCoinSession();
+        return true;
+      }
+      // If different user, check if timed out
+      const now = new Date();
+      if (now.getTime() - this.activeCoinSession.lastActivity.getTime() > 120000) { // 2 mins
+        this.clearCoinSession();
+      } else {
+        return false; // Busy
+      }
+    }
+
+    this.activeCoinSession = {
+      macAddress,
+      ipAddress,
+      amount: 0,
+      lastActivity: new Date()
+    };
+
+    // Set timeout to clear session automatically
+    this.refreshCoinSession();
+
+    console.log(`Coin session started for ${macAddress} (${ipAddress})`);
+    return true;
+  }
+
+  private refreshCoinSession() {
+    if (this.coinSessionTimeout) {
+      clearTimeout(this.coinSessionTimeout);
+    }
+    if (this.activeCoinSession) {
+      this.activeCoinSession.lastActivity = new Date();
+    }
+    this.coinSessionTimeout = setTimeout(() => {
+      console.log('Coin session timed out');
+      this.clearCoinSession();
+    }, 120000); // 2 minutes
+  }
+
+  public clearCoinSession() {
+    this.activeCoinSession = null;
+    if (this.coinSessionTimeout) {
+      clearTimeout(this.coinSessionTimeout);
+      this.coinSessionTimeout = null;
+    }
+  }
+
+  public getCoinSession(macAddress: string): CoinSession | null {
+    if (this.activeCoinSession && this.activeCoinSession.macAddress === macAddress) {
+      return this.activeCoinSession;
+    }
+    return null;
   }
 }
 

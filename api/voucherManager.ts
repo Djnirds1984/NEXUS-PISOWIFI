@@ -68,7 +68,7 @@ class VoucherManager {
   /**
    * Redeem a voucher
    */
-  async redeemVoucher(code: string, macAddress: string): Promise<{ success: boolean; message: string; session?: any }> {
+  async redeemVoucher(code: string, macAddress: string, ipAddress?: string): Promise<{ success: boolean; message: string; session?: any }> {
     const voucher = getVoucher(code);
 
     if (!voucher) {
@@ -80,7 +80,17 @@ class VoucherManager {
     }
 
     // Check for active session to extend, or start new
+    // Try to find session by MAC first, then by IP if provided
     let session = sessionManager.getSession(macAddress);
+    if (!session && ipAddress) {
+       session = sessionManager.getSessionByIp(ipAddress);
+       // If found by IP, we should probably update the MAC if it's different (unlikely but possible if MAC changed)
+       // Or more likely, we found the session for this user even though MAC lookup failed previously.
+       if (session) {
+         // Update the MAC address in the request context to match the session
+         macAddress = session.macAddress;
+       }
+    }
     
     // Calculate minutes based on amount (pesos)
     const settings = getSettings();
@@ -98,27 +108,27 @@ class VoucherManager {
     try {
       if (session && session.active) {
         // Extend existing session
-        await sessionManager.extendSession(macAddress, minutes);
-        session = sessionManager.getSession(macAddress); // Refresh session data
+        await sessionManager.extendSession(session.macAddress, minutes); // Use session.macAddress to be safe
+        session = sessionManager.getSession(session.macAddress);
+        // Update IP mapping if we have a fresh IP
+        if (ipAddress) {
+          sessionManager.updateIpMapping(session!.macAddress, ipAddress);
+        }
       } else {
         // Start new session
-        session = await sessionManager.startSession(macAddress, voucher.amount);
-        // Note: startSession uses amount to calculate minutes again, 
-        // we might need to ensure consistency if logic differs. 
-        // startSession implementation in sessionManager handles minute calculation from pesos.
-        // But startSession takes 'pesos' as argument.
+        session = await sessionManager.startSession(macAddress, voucher.amount, ipAddress);
       }
 
       // Mark voucher as used
-      updateVoucher(code, {
-        isUsed: true,
-        dateUsed: new Date().toISOString()
+      updateVoucher(code, { 
+        isUsed: true, 
+        dateUsed: new Date().toISOString() 
       });
 
       return { 
         success: true, 
         message: `Voucher redeemed successfully! Added ${minutes} minutes.`,
-        session 
+        session
       };
     } catch (error) {
       console.error('Error redeeming voucher:', error);

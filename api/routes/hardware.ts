@@ -1,5 +1,6 @@
 import express from 'express';
 import { hardwareManager } from '../hardwareManager.js';
+import { resolveMACByIP } from '../utils/network.js';
 import { coinEvents } from '../coinEvents.js';
 
 const router = express.Router();
@@ -152,6 +153,78 @@ router.post('/mock-mode', async (req, res) => {
       success: false,
       error: 'Failed to toggle mock mode'
     });
+  }
+});
+
+// Start coin session
+router.post('/start-coin-session', async (req, res) => {
+  try {
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '').replace('::ffff:', '');
+    let { macAddress } = req.body;
+
+    if (!macAddress) {
+      macAddress = await resolveMACByIP(ip);
+    }
+
+    if (!macAddress && hardwareManager.getHardwareStatus().mockMode) {
+       // In mock mode, allow random MAC if not found (for testing on localhost)
+       macAddress = '00:00:00:00:00:00';
+    }
+
+    if (!macAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not resolve MAC address'
+      });
+    }
+
+    const success = hardwareManager.startCoinSession(macAddress, ip);
+
+    if (success) {
+      res.json({
+        success: true,
+        message: 'Coin session started'
+      });
+    } else {
+      res.status(409).json({
+        success: false,
+        error: 'Coin slot is busy. Please try again in a moment.'
+      });
+    }
+  } catch (error) {
+    console.error('Error starting coin session:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to start coin session'
+    });
+  }
+});
+
+// Get current coin session
+router.get('/coin-session', async (req, res) => {
+  try {
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '').replace('::ffff:', '');
+    let { macAddress } = req.query;
+
+    if (!macAddress) {
+      macAddress = await resolveMACByIP(ip);
+    }
+    
+    if (!macAddress && hardwareManager.getHardwareStatus().mockMode) {
+       macAddress = '00:00:00:00:00:00';
+    }
+
+    if (!macAddress) {
+       return res.json({ success: true, data: null });
+    }
+
+    const session = hardwareManager.getCoinSession(macAddress as string);
+    res.json({
+      success: true,
+      data: session
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Error getting coin session' });
   }
 });
 

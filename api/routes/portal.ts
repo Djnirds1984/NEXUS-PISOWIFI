@@ -3,6 +3,7 @@ import { getSettings } from '../database.js';
 import { sessionManager } from '../sessionManager.js';
 import { resolveMACByIP } from '../utils/network.js';
 import { networkManager } from '../networkManager.js';
+import { hardwareManager } from '../hardwareManager.js';
 
 import { voucherManager } from '../voucherManager.js';
 
@@ -76,24 +77,62 @@ router.get('/settings', async (req, res) => {
 router.get('/status', async (req, res) => {
   try {
     let macAddress = (req.query.mac as string) || '';
+    let ip = (req.ip || '').replace('::ffff:', '');
     
+    // Attempt resolution if MAC is missing
     if (!macAddress) {
-      const ip = (req.ip || '').replace('::ffff:', '');
       macAddress = (await resolveMACByIP(ip)) || '';
     }
 
-    // Validate MAC address format
-    const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
-    if (!macRegex.test(macAddress)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid MAC address format'
-      });
+    // Fallback: If no MAC found, or if session check by MAC fails, try checking by IP
+    let session = macAddress ? sessionManager.getSession(macAddress) : undefined;
+    
+    if (!session && ip) {
+       // Try finding session by IP
+       session = sessionManager.getSessionByIp(ip);
+       if (session) {
+         // Found session by IP! Update our working MAC
+         macAddress = session.macAddress;
+         // Also ensure IP mapping is fresh
+         sessionManager.updateIpMapping(macAddress, ip);
+       }
     }
 
-    const session = sessionManager.getSession(macAddress);
-    const isActive = sessionManager.isSessionActive(macAddress);
-    const timeRemaining = sessionManager.getSessionTimeRemaining(macAddress);
+    // If still no session, and we have a MAC, check simple active status
+    if (macAddress && !session) {
+       // Maybe it's active but getSession returned undefined? (Unlikely with current implementation but good for safety)
+    }
+
+    // Final MAC validation before returning response (only if we have one)
+    if (macAddress) {
+      const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+      if (!macRegex.test(macAddress)) {
+         // If we found a session by IP, we trust that session's MAC. 
+         // If we resolved a bad MAC from system, we might be in trouble.
+         // But let's be lenient: if we found a session, use it.
+         if (!session) {
+             return res.status(400).json({
+               success: false,
+               error: 'Invalid MAC address format'
+             });
+         }
+      }
+    } else {
+       // No MAC, No Session found by IP
+       return res.json({
+         success: true,
+         data: {
+           connected: false,
+           session: null,
+           timeRemaining: 0,
+           hasSession: false,
+           ip // useful for debugging
+         }
+       });
+    }
+
+    const isActive = session ? session.active : (macAddress ? sessionManager.isSessionActive(macAddress) : false);
+    const timeRemaining = session ? sessionManager.getSessionTimeRemaining(session.macAddress) : 0;
 
     res.json({
       success: true,
@@ -101,7 +140,8 @@ router.get('/status', async (req, res) => {
         connected: isActive,
         session: session || null,
         timeRemaining: isActive ? timeRemaining : 0,
-        hasSession: !!session
+        hasSession: !!session,
+        macAddress // Return resolved MAC
       }
     });
   } catch (error) {
@@ -117,10 +157,28 @@ router.get('/status', async (req, res) => {
 router.post('/connect', async (req, res) => {
   try {
     let { macAddress, pesos } = req.body;
+    const ip = (req.ip || '').replace('::ffff:', '');
 
     if (!macAddress) {
-      const ip = (req.ip || '').replace('::ffff:', '');
       macAddress = (await resolveMACByIP(ip)) || '';
+    }
+
+    // Fallback: If no MAC, can we find an existing session by IP?
+    if (!macAddress && ip) {
+       const existingSession = sessionManager.getSessionByIp(ip);
+       if (existingSession) {
+         macAddress = existingSession.macAddress;
+       }
+    }
+
+    // Check for active coin session (server-side verified credits)
+    if (macAddress) {
+      const coinSession = hardwareManager.getCoinSession(macAddress);
+      if (coinSession && coinSession.amount > 0) {
+        console.log(`Using coin session for ${macAddress}: ${coinSession.amount} pesos`);
+        pesos = coinSession.amount;
+        // We will clear the session after successful start
+      }
     }
 
     if (!macAddress || !pesos) {
@@ -156,7 +214,13 @@ router.post('/connect', async (req, res) => {
     }
 
     // Start new session
-    const session = await sessionManager.startSession(macAddress, pesos);
+    const session = await sessionManager.startSession(macAddress, pesos, ip);
+
+    // Clear coin session if it was used
+    if (hardwareManager.getCoinSession(macAddress)) {
+      hardwareManager.clearCoinSession();
+    }
+
     const timeRemaining = sessionManager.getSessionTimeRemaining(macAddress);
 
     res.json({
@@ -225,6 +289,12 @@ router.post('/extend', async (req, res) => {
 
     // Extend session
     await sessionManager.extendSession(macAddress, additionalMinutes);
+    
+    // Clear coin session if it was used
+    if (hardwareManager.getCoinSession(macAddress)) {
+      hardwareManager.clearCoinSession();
+    }
+
     const timeRemaining = sessionManager.getSessionTimeRemaining(macAddress);
 
     res.json({

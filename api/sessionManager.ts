@@ -20,6 +20,7 @@ export interface SessionStats {
 
 export class SessionManager {
   private activeSessions: Map<string, UserSession> = new Map();
+  private ipToMacMap: Map<string, string> = new Map(); // Fallback for IP-based lookup
   private sessionTimers: Map<string, NodeJS.Timeout> = new Map();
   private cleanupInterval: NodeJS.Timeout | null = null;
 
@@ -40,6 +41,9 @@ export class SessionManager {
       };
       
       this.activeSessions.set(normalizedMac, userSession);
+      if (userSession.ipAddress) {
+        this.ipToMacMap.set(userSession.ipAddress, normalizedMac);
+      }
       
       // Schedule session expiration
       this.scheduleSessionExpiration(normalizedMac, userSession.endTime);
@@ -58,7 +62,31 @@ export class SessionManager {
     console.log(`Session manager initialized with ${this.activeSessions.size} active sessions`);
   }
 
-  async startSession(macAddress: string, pesos: number): Promise<UserSession> {
+  // Helper to update IP mapping
+  updateIpMapping(macAddress: string, ipAddress: string) {
+    if (ipAddress) {
+      this.ipToMacMap.set(ipAddress, macAddress.replace(/-/g, ':').toLowerCase());
+      // Also update the session object if it exists
+      const session = this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
+      if (session) {
+        session.ipAddress = ipAddress;
+      }
+    }
+  }
+
+  getSessionByIp(ipAddress: string): UserSession | undefined {
+    const mac = this.ipToMacMap.get(ipAddress);
+    if (mac) {
+      return this.activeSessions.get(mac);
+    }
+    // Try to find in active sessions by IP property
+    for (const session of this.activeSessions.values()) {
+      if (session.ipAddress === ipAddress) return session;
+    }
+    return undefined;
+  }
+
+  async startSession(macAddress: string, pesos: number, ipAddress?: string): Promise<UserSession> {
     try {
       const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
       // Calculate session duration based on pesos
@@ -69,6 +97,7 @@ export class SessionManager {
       // Create session object
       const session: UserSession = {
         macAddress: normalizedMac,
+        ipAddress,
         startTime,
         endTime,
         pesos,
@@ -85,6 +114,9 @@ export class SessionManager {
 
       // Add to active sessions map
       this.activeSessions.set(normalizedMac, session);
+      if (ipAddress) {
+        this.ipToMacMap.set(ipAddress, normalizedMac);
+      }
 
       // Allow internet access
       await networkManager.allowMACAddress(normalizedMac);
@@ -92,7 +124,7 @@ export class SessionManager {
       // Schedule session expiration
       this.scheduleSessionExpiration(normalizedMac, endTime);
 
-      console.log(`Session started for ${normalizedMac}: ${pesos} pesos = ${minutes} minutes`);
+      console.log(`Session started for ${normalizedMac} (IP: ${ipAddress || 'unknown'}): ${pesos} pesos = ${minutes} minutes`);
 
       return session;
     } catch (error) {
@@ -201,6 +233,11 @@ export class SessionManager {
     return this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
   }
 
+  isSessionActive(macAddress: string): boolean {
+    const session = this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
+    return !!(session && session.active);
+  }
+
   getAllActiveSessions(): UserSession[] {
     return Array.from(this.activeSessions.values());
   }
@@ -290,11 +327,6 @@ export class SessionManager {
       totalRevenue,
       averageSessionDuration: Math.round(averageSessionDuration)
     };
-  }
-
-  isSessionActive(macAddress: string): boolean {
-    const session = this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
-    return session ? session.active : false;
   }
 
   getActiveSessionCount(): number {

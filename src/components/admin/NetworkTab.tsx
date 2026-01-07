@@ -164,6 +164,29 @@ const NetworkTab: React.FC = () => {
     }
   };
 
+  const handleConfigureWan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const response = await fetch('/api/network/wan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(wanForm),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to configure WAN');
+      }
+
+      await fetchNetworkStatus();
+      setShowWanForm(false);
+      alert('WAN interface configured successfully!');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to configure WAN');
+    }
+  };
+
   const handleRestartNetworking = async () => {
     if (!confirm('Are you sure you want to restart networking services? This may temporarily disconnect users.')) {
       return;

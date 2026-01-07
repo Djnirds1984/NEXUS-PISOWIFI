@@ -39,6 +39,7 @@ const Portal: React.FC = () => {
   const [countdown, setCountdown] = useState(60);
   const [internetStatus, setInternetStatus] = useState<'checking' | 'online' | 'offline' | null>(null);
   const [verifyingConnection, setVerifyingConnection] = useState(false);
+  const [mode, setMode] = useState<'connect' | 'extend'>('connect');
 
   // Check internet status when active
   useEffect(() => {
@@ -316,7 +317,26 @@ const Portal: React.FC = () => {
   };
 
   // Coin modal controls
-  const openCoinModal = () => {
+  const openCoinModal = async (newMode: 'connect' | 'extend' = 'connect') => {
+    // Attempt to start coin session on server
+    try {
+      const res = await fetch('/api/hardware/start-coin-session', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ macAddress: sessionInfo?.macAddress })
+      });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        setError(data.error || 'System busy, please try again.');
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to start coin session', e);
+      // Fallback: allow opening modal even if API fails (e.g. mock mode issues)
+    }
+
+    setMode(newMode);
     setShowCoinModal(true);
     setPesosInserted(0);
     setCountdown(60);
@@ -326,7 +346,11 @@ const Portal: React.FC = () => {
       try {
         const payload = JSON.parse(ev.data);
         if (payload && payload.timestamp) {
-          setPesosInserted(prev => prev + 1);
+          if (typeof payload.amount === 'number') {
+             setPesosInserted(payload.amount);
+          } else {
+             setPesosInserted(prev => prev + 1);
+          }
           setCountdown(60);
         }
       } catch {}
@@ -365,7 +389,11 @@ const Portal: React.FC = () => {
       cancelCoinModal();
       return;
     }
-    await handleConnect();
+    if (mode === 'connect') {
+      await handleConnect();
+    } else {
+      await handleExtendSession();
+    }
   };
 
   const handleRedeemVoucher = async () => {
@@ -505,7 +533,7 @@ const Portal: React.FC = () => {
 
                 <div className="space-y-3">
                   <button
-                    onClick={openCoinModal}
+                    onClick={() => openCoinModal('connect')}
                     className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"
                   >
                     <DollarSign className="w-5 h-5 mr-2" />
@@ -631,7 +659,7 @@ const Portal: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={handleExtendSession}
+                    onClick={() => openCoinModal('extend')}
                     className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"
                   >
                     <DollarSign className="w-5 h-5 mr-2" />
