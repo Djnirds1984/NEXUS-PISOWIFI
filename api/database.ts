@@ -79,7 +79,7 @@ export interface Device {
 const defaultData: DatabaseSchema = {
   settings: {
     hardware: {
-      coinSlotPin: 15,
+      coinSlotPin: 3,
       statusLEDPin: 16,
       platform: 'auto-detect',
       mockMode: false

@@ -11,7 +11,7 @@ curl -sSL https://raw.githubusercontent.com/Djnirds1984/NEXUS-PISOWIFI/main/setu
 ### 1. Install Dependencies
 ```bash
 sudo apt update && sudo apt install -y curl git build-essential
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -
 sudo apt install -y nodejs
 ```
 

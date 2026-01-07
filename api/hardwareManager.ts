@@ -31,7 +31,7 @@ export class HardwareManager {
     this.status = {
       platform: 'unknown',
       gpioAvailable: false,
-      coinSlotPin: 15,
+      coinSlotPin: 3,
       statusLEDPin: 16,
       mockMode: false,
       rpioLoaded: false,
