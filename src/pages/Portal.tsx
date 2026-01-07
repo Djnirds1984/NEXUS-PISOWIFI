@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket, RefreshCw } from 'lucide-react';
+import { formatTimeRemaining } from '../utils/timeUtils';
 
 interface PortalSettings {
   title: string;
@@ -305,16 +306,7 @@ const Portal: React.FC = () => {
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const s = Math.max(0, seconds);
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    const hh = h.toString().padStart(2, '0');
-    const mm = m.toString().padStart(2, '0');
-    const ss = sec.toString().padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
-  };
+
 
   // Coin modal controls
   const openCoinModal = async (newMode: 'connect' | 'extend' = 'connect') => {
@@ -468,7 +460,26 @@ const Portal: React.FC = () => {
         />
       )}
       
-      <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
+      {/* Sticky Time Header */}
+      {sessionInfo?.isActive && (
+        <div className={`fixed top-0 left-0 right-0 z-50 px-4 py-3 shadow-lg backdrop-blur-md transition-colors duration-300 ${
+          isDarkTheme ? 'bg-gray-900/90 text-white border-b border-gray-700' : 'bg-white/90 text-gray-900 border-b border-gray-200'
+        }`}>
+          <div className="max-w-md mx-auto flex justify-between items-center">
+             <div className="flex items-center space-x-2">
+               <Clock className={`w-5 h-5 ${sessionInfo.timeRemaining < 300 ? 'text-red-500 animate-pulse' : 'text-blue-500'}`} />
+               <span className="font-semibold text-sm uppercase tracking-wider opacity-80">Time Remaining</span>
+             </div>
+             <span className={`font-mono font-bold text-2xl tracking-widest ${
+               sessionInfo.timeRemaining < 300 ? 'text-red-500 animate-pulse' : (isDarkTheme ? 'text-white' : 'text-gray-900')
+             }`}>
+               {formatTimeRemaining(sessionInfo.timeRemaining)}
+             </span>
+          </div>
+        </div>
+      )}
+      
+      <div className={`relative z-10 min-h-screen flex items-center justify-center p-4 ${sessionInfo?.isActive ? 'pt-20' : ''}`}>
         <div className={`w-full max-w-md ${isDarkTheme ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-2xl overflow-hidden`}>
           {/* Header */}
           <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gradient-to-r from-blue-600 to-indigo-600'} p-6 text-white text-center`}>
@@ -618,8 +629,8 @@ const Portal: React.FC = () => {
                         Time Remaining
                       </span>
                     </div>
-                    <span className={`font-bold text-lg ${sessionInfo.timeRemaining > 5 ? 'text-green-600' : 'text-red-600'}`}>
-                      {formatTime(sessionInfo.timeRemaining)}
+                    <span className={`font-bold text-4xl font-mono tracking-wider ${sessionInfo.timeRemaining > 300 ? 'text-green-600' : 'text-red-600 animate-pulse'}`}>
+                      {formatTimeRemaining(sessionInfo.timeRemaining)}
                     </span>
                   </div>
                   
