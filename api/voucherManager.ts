@@ -5,7 +5,8 @@ import {
   deleteVoucher, 
   getVouchers, 
   Voucher,
-  getSettings 
+  getSettings,
+  getDB
 } from './database.js';
 import { sessionManager } from './sessionManager.js';
 
@@ -69,6 +70,7 @@ class VoucherManager {
    * Redeem a voucher
    */
   async redeemVoucher(code: string, macAddress: string, ipAddress?: string): Promise<{ success: boolean; message: string; session?: any }> {
+    // 1. Initial Validation
     const voucher = getVoucher(code);
 
     if (!voucher) {
@@ -84,8 +86,6 @@ class VoucherManager {
     let session = sessionManager.getSession(macAddress);
     if (!session && ipAddress) {
        session = sessionManager.getSessionByIp(ipAddress);
-       // If found by IP, we should probably update the MAC if it's different (unlikely but possible if MAC changed)
-       // Or more likely, we found the session for this user even though MAC lookup failed previously.
        if (session) {
          // Update the MAC address in the request context to match the session
          macAddress = session.macAddress;
@@ -106,33 +106,55 @@ class VoucherManager {
     }
 
     try {
-      if (session && session.active) {
-        // Extend existing session
-        await sessionManager.extendSession(session.macAddress, minutes); // Use session.macAddress to be safe
-        session = sessionManager.getSession(session.macAddress);
-        // Update IP mapping if we have a fresh IP
-        if (ipAddress) {
-          sessionManager.updateIpMapping(session!.macAddress, ipAddress);
-        }
-      } else {
-        // Start new session
-        session = await sessionManager.startSession(macAddress, voucher.amount, ipAddress);
-      }
+      const dbi = getDB();
+      let updatedSession: any;
+      let isExtension = false;
 
-      // Mark voucher as used
-      updateVoucher(code, { 
-        isUsed: true, 
-        dateUsed: new Date().toISOString() 
+      // 2. Transaction: Mark Voucher Used + Create/Update Session Record
+      const transaction = dbi.transaction(() => {
+         // Re-check voucher status inside transaction for safety (concurrency)
+         const currentVoucher = getVoucher(code);
+         if (!currentVoucher || currentVoucher.isUsed) {
+             throw new Error('Voucher invalid or already used');
+         }
+
+         // Mark voucher as used
+         updateVoucher(code, { 
+            isUsed: true, 
+            dateUsed: new Date().toISOString() 
+         });
+         
+         if (session && session.active) {
+            isExtension = true;
+            // Extend existing session DB record
+            updatedSession = sessionManager.extendSessionDB(session.macAddress, minutes);
+         } else {
+            // Start new session DB record
+            updatedSession = sessionManager.startSessionDB(macAddress, voucher.amount, ipAddress);
+         }
       });
+
+      // Execute transaction
+      transaction();
+
+      // 3. Post-Transaction: Update memory/network
+      // If we are here, DB is updated. Now update memory/network.
+      if (updatedSession) {
+          await sessionManager.syncSessionState(updatedSession);
+          
+          if (isExtension && ipAddress) {
+              sessionManager.updateIpMapping(updatedSession.macAddress, ipAddress);
+          }
+      }
 
       return { 
         success: true, 
         message: `Voucher redeemed successfully! Added ${minutes} minutes.`,
-        session
+        session: updatedSession
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error redeeming voucher:', error);
-      return { success: false, message: 'Failed to redeem voucher' };
+      return { success: false, message: error.message || 'Failed to redeem voucher' };
     }
   }
 }

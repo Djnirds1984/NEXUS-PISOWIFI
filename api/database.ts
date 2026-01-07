@@ -1,6 +1,8 @@
 import path from 'path';
 import { kvGet, kvSet, kvAll, sessionsInsert, sessionsUpdate, sessionsRemove, sessionsActive, sessionsAll, sessionsCleanupExpired, getDB, devicesUpsert, devicesGet, devicesAll, devicesDelete, devicesUpdate, vouchersInsert, vouchersGet, vouchersUpdate, vouchersDelete, vouchersAll } from './sqlite.js';
 
+export { getDB };
+
 // Define the database schema
 interface HardwareSettings {
   coinSlotPin: number;

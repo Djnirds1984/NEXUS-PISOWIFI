@@ -1,5 +1,5 @@
 import { networkManager } from './networkManager.js';
-import { addSession, updateSession, removeSession, getActiveSessions, cleanupExpiredSessions, getSessions, getSettings } from './database.js';
+import { addSession, updateSession, removeSession, getActiveSessions, cleanupExpiredSessions, getSessions, getSettings, getDB } from './database.js';
 
 export interface UserSession {
   macAddress: string;
@@ -29,8 +29,15 @@ export class SessionManager {
   }
 
   public async initialize(): Promise<void> {
+    console.log('Initializing Session Manager - Starting Recovery Process...');
+    
     // Load existing active sessions from database
     const sessions = getActiveSessions();
+    let restoredCount = 0;
+    let expiredCount = 0;
+
+    console.log(`Found ${sessions.length} potentially active sessions in database.`);
+
     for (const session of sessions) {
       const normalizedMac = session.macAddress.replace(/-/g, ':').toLowerCase();
       const userSession: UserSession = {
@@ -40,26 +47,67 @@ export class SessionManager {
         endTime: new Date(session.endTime)
       };
       
-      this.activeSessions.set(normalizedMac, userSession);
-      if (userSession.ipAddress) {
-        this.ipToMacMap.set(userSession.ipAddress, normalizedMac);
+      const now = new Date();
+      if (userSession.endTime <= now) {
+         // Session expired while down
+         console.log(`Session for ${normalizedMac} expired during downtime (Expired: ${userSession.endTime.toISOString()})`);
+         // Ensure it's marked inactive in DB
+         updateSession(normalizedMac, { active: false });
+         expiredCount++;
+         continue;
       }
-      
-      // Schedule session expiration
-      this.scheduleSessionExpiration(normalizedMac, userSession.endTime);
-      
-      // Allow internet access for this session
-      if (userSession.active) {
-        await networkManager.allowMACAddress(normalizedMac);
-      }
+
+      // Restore active session
+      await this.syncSessionState(userSession);
+      restoredCount++;
+      console.log(`Restored active session for ${normalizedMac} (Expires: ${userSession.endTime.toISOString()})`);
     }
 
     // Set up periodic cleanup of expired sessions
     this.cleanupInterval = setInterval(() => {
       this.performCleanup();
+      this.verifySessionConsistency();
     }, 60000); // Clean up every minute
 
-    console.log(`Session manager initialized with ${this.activeSessions.size} active sessions`);
+    console.log(`Session Recovery Complete: ${restoredCount} restored, ${expiredCount} expired/cleaned.`);
+  }
+
+  /**
+   * Periodically checks for inconsistencies between in-memory state and database
+   */
+  private async verifySessionConsistency(): Promise<void> {
+    try {
+      const dbSessions = getActiveSessions();
+      const dbSessionMap = new Map(dbSessions.map(s => [s.macAddress.replace(/-/g, ':').toLowerCase(), s]));
+      const now = new Date();
+
+      // 1. DB -> Memory Sync (Restore missing)
+      for (const dbSession of dbSessions) {
+        const normalizedMac = dbSession.macAddress.replace(/-/g, ':').toLowerCase();
+        if (new Date(dbSession.endTime) <= now) continue; // Let cleanup handle it
+
+        if (!this.activeSessions.has(normalizedMac)) {
+          console.warn(`[Consistency Check] FOUND INCONSISTENCY: Session for ${normalizedMac} in DB but missing from memory. Restoring...`);
+          const userSession: UserSession = {
+            ...dbSession,
+            macAddress: normalizedMac,
+            startTime: new Date(dbSession.startTime),
+            endTime: new Date(dbSession.endTime)
+          };
+          await this.syncSessionState(userSession);
+        }
+      }
+
+      // 2. Memory -> DB Sync (Detect ghosts)
+      for (const [mac, memSession] of this.activeSessions) {
+        if (!dbSessionMap.has(mac)) {
+           console.warn(`[Consistency Check] FOUND INCONSISTENCY: Session for ${mac} in memory but not active in DB. Ending session...`);
+           await this.endSession(mac);
+        }
+      }
+    } catch (error) {
+      console.error('[Consistency Check] Error:', error);
+    }
   }
 
   // Helper to update IP mapping
@@ -86,8 +134,8 @@ export class SessionManager {
     return undefined;
   }
 
-  async startSession(macAddress: string, pesos: number, ipAddress?: string): Promise<UserSession> {
-    try {
+  // Synchronous DB update only - safe for transactions
+  startSessionDB(macAddress: string, pesos: number, ipAddress?: string): UserSession {
       const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
       // Calculate session duration based on pesos
       const minutes = this.calculateSessionDuration(pesos);
@@ -111,20 +159,38 @@ export class SessionManager {
         startTime: session.startTime.toISOString(),
         endTime: session.endTime.toISOString()
       });
-
+      
+      return session;
+  }
+  
+  // Update in-memory state and network access
+  async syncSessionState(session: UserSession): Promise<void> {
+      const normalizedMac = session.macAddress;
+      
       // Add to active sessions map
       this.activeSessions.set(normalizedMac, session);
-      if (ipAddress) {
-        this.ipToMacMap.set(ipAddress, normalizedMac);
+      if (session.ipAddress) {
+        this.ipToMacMap.set(session.ipAddress, normalizedMac);
       }
 
       // Allow internet access
-      await networkManager.allowMACAddress(normalizedMac);
+      try {
+        await networkManager.allowMACAddress(normalizedMac);
+      } catch (e) {
+        console.error(`Failed to restore network access for ${normalizedMac}:`, e);
+      }
 
       // Schedule session expiration
-      this.scheduleSessionExpiration(normalizedMac, endTime);
+      this.scheduleSessionExpiration(normalizedMac, session.endTime);
+  }
 
-      console.log(`Session started for ${normalizedMac} (IP: ${ipAddress || 'unknown'}): ${pesos} pesos = ${minutes} minutes`);
+  async startSession(macAddress: string, pesos: number, ipAddress?: string): Promise<UserSession> {
+    try {
+      const session = this.startSessionDB(macAddress, pesos, ipAddress);
+      
+      await this.syncSessionState(session);
+
+      console.log(`Session started for ${session.macAddress} (IP: ${ipAddress || 'unknown'}): ${pesos} pesos = ${session.minutes} minutes`);
 
       return session;
     } catch (error) {
@@ -154,9 +220,9 @@ export class SessionManager {
         startTime: session.startTime.toISOString(),
         endTime: session.endTime.toISOString()
       });
-      this.activeSessions.set(normalizedMac, session);
-      await networkManager.allowMACAddress(normalizedMac);
-      this.scheduleSessionExpiration(normalizedMac, endTime);
+      
+      await this.syncSessionState(session);
+      
       console.log(`Timed session started for ${normalizedMac}: ${minutes} minutes`);
       return session;
     } catch (error) {
@@ -169,16 +235,14 @@ export class SessionManager {
     try {
       const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
       const session = this.activeSessions.get(normalizedMac);
-      if (!session) {
-        throw new Error('Session not found');
-      }
-
-      // Mark session as inactive
-      session.active = false;
+      
+      // Even if not in memory, ensure DB is updated
       updateSession(normalizedMac, { active: false });
 
-      // Remove from active sessions
-      this.activeSessions.delete(normalizedMac);
+      if (session) {
+         session.active = false;
+         this.activeSessions.delete(normalizedMac);
+      }
 
       // Cancel expiration timer
       const timer = this.sessionTimers.get(normalizedMac);
@@ -214,6 +278,11 @@ export class SessionManager {
   private scheduleSessionExpiration(macAddress: string, endTime: Date): void {
     const now = new Date();
     const timeUntilExpiration = endTime.getTime() - now.getTime();
+
+    // Clear existing timer if any
+    if (this.sessionTimers.has(macAddress)) {
+        clearTimeout(this.sessionTimers.get(macAddress));
+    }
 
     if (timeUntilExpiration <= 0) {
       // Session already expired
@@ -253,28 +322,44 @@ export class SessionManager {
     return Math.max(0, Math.floor(timeRemaining / 1000)); // Return seconds
   }
 
-  async extendSession(macAddress: string, additionalMinutes: number): Promise<void> {
+  extendSessionDB(macAddress: string, additionalMinutes: number): UserSession {
     const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
+    
     const session = this.activeSessions.get(normalizedMac);
     if (!session || !session.active) {
       throw new Error('Session not found or inactive');
     }
 
     // Extend session duration
-    session.endTime = new Date(session.endTime.getTime() + additionalMinutes * 60000);
-    session.minutes += additionalMinutes;
+    const newEndTime = new Date(session.endTime.getTime() + additionalMinutes * 60000);
+    const newMinutes = session.minutes + additionalMinutes;
 
     // Update database
     updateSession(normalizedMac, {
-      endTime: session.endTime.toISOString(),
-      minutes: session.minutes
+      endTime: newEndTime.toISOString(),
+      minutes: newMinutes
     });
+    
+    // Return updated session object (copy)
+    return {
+        ...session,
+        endTime: newEndTime,
+        minutes: newMinutes
+    };
+  }
 
-    // Reschedule expiration timer
-    this.scheduleSessionExpiration(normalizedMac, session.endTime);
+  async extendSession(macAddress: string, additionalMinutes: number): Promise<void> {
+    const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
+    
+    // Check existence first
+    const session = this.activeSessions.get(normalizedMac);
+    if (!session || !session.active) {
+      throw new Error('Session not found or inactive');
+    }
 
-    // Ensure internet access is allowed (in case it was lost)
-    await networkManager.allowMACAddress(normalizedMac);
+    const updatedSession = this.extendSessionDB(normalizedMac, additionalMinutes);
+    
+    await this.syncSessionState(updatedSession);
 
     console.log(`Session extended for ${normalizedMac}: +${additionalMinutes} minutes`);
   }

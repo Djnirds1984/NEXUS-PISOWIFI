@@ -99,9 +99,23 @@ export function sessionsUpdate(macAddress: string, updates: Partial<any>): void 
   const dbi = getDB();
   const existing = dbi.prepare('SELECT * FROM sessions WHERE macAddress=? ORDER BY startTime DESC LIMIT 1').get(macAddress) as any;
   if (!existing) return;
+  
   const next = { ...existing, ...updates };
-  dbi.prepare('DELETE FROM sessions WHERE macAddress=? AND startTime=?').run(macAddress, existing.startTime);
-  sessionsInsert(next);
+  
+  // Use proper UPDATE instead of DELETE+INSERT for atomicity
+  const fields = Object.keys(updates).map(key => `${key}=@${key}`).join(', ');
+  if (!fields) return;
+
+  dbi.prepare(`
+    UPDATE sessions SET 
+      ${fields}
+    WHERE macAddress=@macAddress AND startTime=@originalStartTime
+  `).run({
+    ...updates,
+    macAddress,
+    originalStartTime: existing.startTime,
+    active: next.active ? 1 : 0
+  });
 }
 
 export function sessionsRemove(macAddress: string): void {
