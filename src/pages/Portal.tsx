@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket } from 'lucide-react';
 
 interface PortalSettings {
   title: string;
@@ -40,6 +40,8 @@ const Portal: React.FC = () => {
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [rates, setRates] = useState<{ pesos: number; minutes: number }[]>([]);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+  const [voucherCode, setVoucherCode] = useState('');
+  const [redeemingVoucher, setRedeemingVoucher] = useState(false);
 
   // Fetch portal settings and session info
   useEffect(() => {
@@ -309,6 +311,40 @@ const Portal: React.FC = () => {
     await handleConnect();
   };
 
+  const handleRedeemVoucher = async () => {
+    if (!voucherCode.trim()) {
+      setError('Please enter a voucher code');
+      return;
+    }
+
+    try {
+      setRedeemingVoucher(true);
+      setError('');
+      
+      const res = await fetch('/api/portal/redeem-voucher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          code: voucherCode,
+          macAddress: sessionInfo?.macAddress || deviceInfo?.mac 
+        })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setVoucherCode('');
+        fetchSessionInfo(); // Refresh session info
+      } else {
+        setError(data.error || 'Failed to redeem voucher');
+      }
+    } catch (err) {
+      setError('An error occurred while redeeming voucher');
+    } finally {
+      setRedeemingVoucher(false);
+    }
+  };
+
   const backgroundStyle = portalSettings.backgroundImage 
     ? { backgroundImage: `url(${portalSettings.backgroundImage})` }
     : {};
@@ -424,6 +460,34 @@ const Portal: React.FC = () => {
                       </>
                     )}
                   </button>
+                </div>
+
+                <div className="mt-6 border-t pt-4">
+                  <div className="text-center mb-3">
+                    <span className={`text-sm ${isDarkTheme ? 'text-gray-400' : 'text-gray-500'}`}>Or redeem a voucher code</span>
+                  </div>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={voucherCode}
+                      onChange={(e) => setVoucherCode(e.target.value)}
+                      placeholder="Enter Voucher Code"
+                      className={`flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border ${
+                        isDarkTheme ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900'
+                      }`}
+                    />
+                    <button
+                      onClick={handleRedeemVoucher}
+                      disabled={redeemingVoucher || !voucherCode.trim()}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50"
+                    >
+                      {redeemingVoucher ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Ticket className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (

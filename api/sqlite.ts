@@ -42,6 +42,13 @@ export function getDB(): Database.Database {
       bandwidthCapKbps INTEGER,
       priority INTEGER
     );
+    CREATE TABLE IF NOT EXISTS vouchers (
+      code TEXT PRIMARY KEY,
+      amount INTEGER,
+      isUsed INTEGER,
+      dateGenerated TEXT,
+      dateUsed TEXT
+    );
   `);
   return db;
 }
@@ -183,4 +190,52 @@ export function devicesUpdate(macAddress: string, updates: Partial<any>): void {
   const existing = devicesGet(macAddress);
   if (!existing) return;
   devicesUpsert({ ...existing, ...updates, macAddress });
+}
+
+export function vouchersInsert(voucher: any): void {
+  const dbi = getDB();
+  dbi.prepare(`
+    INSERT INTO vouchers(code,amount,isUsed,dateGenerated,dateUsed)
+    VALUES(@code,@amount,@isUsed,@dateGenerated,@dateUsed)
+  `).run({
+    ...voucher,
+    isUsed: voucher.isUsed ? 1 : 0
+  });
+}
+
+export function vouchersGet(code: string): any | null {
+  const dbi = getDB();
+  const row = dbi.prepare('SELECT * FROM vouchers WHERE code=?').get(code) as any;
+  if (!row) return null;
+  return { ...row, isUsed: !!row.isUsed };
+}
+
+export function vouchersUpdate(code: string, updates: Partial<any>): void {
+  const dbi = getDB();
+  const existing = vouchersGet(code);
+  if (!existing) return;
+  
+  const next = { ...existing, ...updates };
+  dbi.prepare(`
+    UPDATE vouchers SET
+      amount=@amount,
+      isUsed=@isUsed,
+      dateGenerated=@dateGenerated,
+      dateUsed=@dateUsed
+    WHERE code=@code
+  `).run({
+    ...next,
+    isUsed: next.isUsed ? 1 : 0
+  });
+}
+
+export function vouchersDelete(code: string): void {
+  const dbi = getDB();
+  dbi.prepare('DELETE FROM vouchers WHERE code=?').run(code);
+}
+
+export function vouchersAll(): any[] {
+  const dbi = getDB();
+  const rows = dbi.prepare('SELECT * FROM vouchers').all() as any[];
+  return rows.map(r => ({ ...r, isUsed: !!r.isUsed }));
 }

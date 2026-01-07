@@ -20,6 +20,7 @@ import portalRoutes from './routes/portal.js'
 import dbRoutes from './routes/db.js'
 import devicesRoutes from './routes/devices.js'
 import qosRoutes from './routes/qos.js'
+import voucherRoutes from './routes/vouchers.js'
 import { getSettings } from './database.js'
 
 // for esm mode
@@ -48,6 +49,7 @@ app.use('/api/portal', portalRoutes)
 app.use('/api/db', dbRoutes)
 app.use('/api/devices', devicesRoutes)
 app.use('/api/qos', qosRoutes)
+app.use('/api/vouchers', voucherRoutes)
 
 const forceRedirect = process.env.CAPTIVE_FORCE_REDIRECT === 'true'
 const allowAdmin = process.env.CAPTIVE_ALLOW_ADMIN !== 'false'

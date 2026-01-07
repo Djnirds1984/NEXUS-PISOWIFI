@@ -1,5 +1,5 @@
 import path from 'path';
-import { kvGet, kvSet, kvAll, sessionsInsert, sessionsUpdate, sessionsRemove, sessionsActive, sessionsAll, sessionsCleanupExpired, getDB, devicesUpsert, devicesGet, devicesAll, devicesDelete, devicesUpdate } from './sqlite.js';
+import { kvGet, kvSet, kvAll, sessionsInsert, sessionsUpdate, sessionsRemove, sessionsActive, sessionsAll, sessionsCleanupExpired, getDB, devicesUpsert, devicesGet, devicesAll, devicesDelete, devicesUpdate, vouchersInsert, vouchersGet, vouchersUpdate, vouchersDelete, vouchersAll } from './sqlite.js';
 
 // Define the database schema
 interface HardwareSettings {
@@ -195,4 +195,32 @@ export function updateDevice(macAddress: string, updates: Partial<Device>) {
 
 export function deleteDevice(macAddress: string) {
   devicesDelete(macAddress);
+}
+
+export interface Voucher {
+  code: string;
+  amount: number;
+  isUsed: boolean;
+  dateGenerated: string;
+  dateUsed?: string;
+}
+
+export function addVoucher(voucher: Voucher) {
+  vouchersInsert(voucher);
+}
+
+export function getVoucher(code: string): Voucher | null {
+  return vouchersGet(code);
+}
+
+export function updateVoucher(code: string, updates: Partial<Voucher>) {
+  vouchersUpdate(code, updates);
+}
+
+export function deleteVoucher(code: string) {
+  vouchersDelete(code);
+}
+
+export function getVouchers(): Voucher[] {
+  return vouchersAll();
 }

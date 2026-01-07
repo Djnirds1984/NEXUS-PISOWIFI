@@ -4,6 +4,8 @@ import { sessionManager } from '../sessionManager.js';
 import { resolveMACByIP } from '../utils/network.js';
 import { networkManager } from '../networkManager.js';
 
+import { voucherManager } from '../voucherManager.js';
+
 const router = express.Router();
 
 // Get portal configuration
@@ -306,6 +308,58 @@ router.post('/disconnect', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to disconnect from WiFi'
+    });
+  }
+});
+
+// Redeem voucher
+router.post('/redeem-voucher', async (req, res) => {
+  try {
+    let { macAddress, code } = req.body;
+
+    if (!macAddress) {
+      const ip = (req.ip || '').replace('::ffff:', '');
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
+
+    if (!macAddress || !code) {
+      return res.status(400).json({
+        success: false,
+        error: 'MAC address and voucher code are required'
+      });
+    }
+
+    // Validate MAC address format
+    const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+    if (!macRegex.test(macAddress)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid MAC address format'
+      });
+    }
+
+    const result = await voucherManager.redeemVoucher(code, macAddress);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        data: {
+          session: result.session,
+          timeRemaining: sessionManager.getSessionTimeRemaining(macAddress)
+        }
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.message
+      });
+    }
+  } catch (error) {
+    console.error('Error redeeming voucher:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to redeem voucher'
     });
   }
 });

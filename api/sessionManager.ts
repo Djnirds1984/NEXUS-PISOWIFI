@@ -31,20 +31,22 @@ export class SessionManager {
     // Load existing active sessions from database
     const sessions = getActiveSessions();
     for (const session of sessions) {
+      const normalizedMac = session.macAddress.replace(/-/g, ':').toLowerCase();
       const userSession: UserSession = {
         ...session,
+        macAddress: normalizedMac,
         startTime: new Date(session.startTime),
         endTime: new Date(session.endTime)
       };
       
-      this.activeSessions.set(session.macAddress, userSession);
+      this.activeSessions.set(normalizedMac, userSession);
       
       // Schedule session expiration
-      this.scheduleSessionExpiration(session.macAddress, userSession.endTime);
+      this.scheduleSessionExpiration(normalizedMac, userSession.endTime);
       
       // Allow internet access for this session
       if (userSession.active) {
-        await networkManager.allowMACAddress(session.macAddress);
+        await networkManager.allowMACAddress(normalizedMac);
       }
     }
 
@@ -58,6 +60,7 @@ export class SessionManager {
 
   async startSession(macAddress: string, pesos: number): Promise<UserSession> {
     try {
+      const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
       // Calculate session duration based on pesos
       const minutes = this.calculateSessionDuration(pesos);
       const startTime = new Date();
@@ -65,7 +68,7 @@ export class SessionManager {
 
       // Create session object
       const session: UserSession = {
-        macAddress,
+        macAddress: normalizedMac,
         startTime,
         endTime,
         pesos,
@@ -81,15 +84,15 @@ export class SessionManager {
       });
 
       // Add to active sessions map
-      this.activeSessions.set(macAddress, session);
+      this.activeSessions.set(normalizedMac, session);
 
       // Allow internet access
-      await networkManager.allowMACAddress(macAddress);
+      await networkManager.allowMACAddress(normalizedMac);
 
       // Schedule session expiration
-      this.scheduleSessionExpiration(macAddress, endTime);
+      this.scheduleSessionExpiration(normalizedMac, endTime);
 
-      console.log(`Session started for ${macAddress}: ${pesos} pesos = ${minutes} minutes`);
+      console.log(`Session started for ${normalizedMac}: ${pesos} pesos = ${minutes} minutes`);
 
       return session;
     } catch (error) {
@@ -103,10 +106,11 @@ export class SessionManager {
       if (typeof minutes !== 'number' || minutes <= 0) {
         throw new Error('minutes must be a positive number');
       }
+      const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
       const now = new Date();
       const endTime = new Date(now.getTime() + minutes * 60000);
       const session: UserSession = {
-        macAddress,
+        macAddress: normalizedMac,
         startTime: now,
         endTime,
         pesos: 0,
@@ -118,10 +122,10 @@ export class SessionManager {
         startTime: session.startTime.toISOString(),
         endTime: session.endTime.toISOString()
       });
-      this.activeSessions.set(macAddress, session);
-      await networkManager.allowMACAddress(macAddress);
-      this.scheduleSessionExpiration(macAddress, endTime);
-      console.log(`Timed session started for ${macAddress}: ${minutes} minutes`);
+      this.activeSessions.set(normalizedMac, session);
+      await networkManager.allowMACAddress(normalizedMac);
+      this.scheduleSessionExpiration(normalizedMac, endTime);
+      console.log(`Timed session started for ${normalizedMac}: ${minutes} minutes`);
       return session;
     } catch (error) {
       console.error('Error starting timed session:', error);
@@ -131,29 +135,30 @@ export class SessionManager {
 
   async endSession(macAddress: string): Promise<void> {
     try {
-      const session = this.activeSessions.get(macAddress);
+      const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
+      const session = this.activeSessions.get(normalizedMac);
       if (!session) {
         throw new Error('Session not found');
       }
 
       // Mark session as inactive
       session.active = false;
-      updateSession(macAddress, { active: false });
+      updateSession(normalizedMac, { active: false });
 
       // Remove from active sessions
-      this.activeSessions.delete(macAddress);
+      this.activeSessions.delete(normalizedMac);
 
       // Cancel expiration timer
-      const timer = this.sessionTimers.get(macAddress);
+      const timer = this.sessionTimers.get(normalizedMac);
       if (timer) {
         clearTimeout(timer);
-        this.sessionTimers.delete(macAddress);
+        this.sessionTimers.delete(normalizedMac);
       }
 
       // Block internet access
-      await networkManager.blockMACAddress(macAddress);
+      await networkManager.blockMACAddress(normalizedMac);
 
-      console.log(`Session ended for ${macAddress}`);
+      console.log(`Session ended for ${normalizedMac}`);
     } catch (error) {
       console.error('Error ending session:', error);
       throw error;
@@ -193,7 +198,7 @@ export class SessionManager {
   }
 
   getSession(macAddress: string): UserSession | undefined {
-    return this.activeSessions.get(macAddress);
+    return this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
   }
 
   getAllActiveSessions(): UserSession[] {
@@ -201,7 +206,7 @@ export class SessionManager {
   }
 
   getSessionTimeRemaining(macAddress: string): number {
-    const session = this.activeSessions.get(macAddress);
+    const session = this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
     if (!session || !session.active) {
       return 0;
     }
@@ -212,7 +217,8 @@ export class SessionManager {
   }
 
   async extendSession(macAddress: string, additionalMinutes: number): Promise<void> {
-    const session = this.activeSessions.get(macAddress);
+    const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
+    const session = this.activeSessions.get(normalizedMac);
     if (!session || !session.active) {
       throw new Error('Session not found or inactive');
     }
@@ -222,15 +228,15 @@ export class SessionManager {
     session.minutes += additionalMinutes;
 
     // Update database
-    updateSession(macAddress, {
+    updateSession(normalizedMac, {
       endTime: session.endTime.toISOString(),
       minutes: session.minutes
     });
 
     // Reschedule expiration timer
-    this.scheduleSessionExpiration(macAddress, session.endTime);
+    this.scheduleSessionExpiration(normalizedMac, session.endTime);
 
-    console.log(`Session extended for ${macAddress}: +${additionalMinutes} minutes`);
+    console.log(`Session extended for ${normalizedMac}: +${additionalMinutes} minutes`);
   }
 
   private async performCleanup(): Promise<void> {
@@ -284,7 +290,7 @@ export class SessionManager {
   }
 
   isSessionActive(macAddress: string): boolean {
-    const session = this.activeSessions.get(macAddress);
+    const session = this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
     return session ? session.active : false;
   }
 

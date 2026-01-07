@@ -549,17 +549,33 @@ address=/#/${config.ipAddress}
       // 4. Allow traffic to Portal IP
       await execAsync(`${ipt} -A FORWARD -d ${gateway} -j ACCEPT`);
 
-      // 5. Allow ESTABLISHED/RELATED (Critical for return traffic not explicitly mentioned but required)
-      await execAsync(`${ipt} -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT`);
+      // 5. Allow ESTABLISHED/RELATED (Critical for return traffic)
+      // Try conntrack first, fall back to state
+      try {
+        await execAsync(`${ipt} -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT`);
+      } catch {
+        await execAsync(`${ipt} -A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT`);
+      }
 
       // 6. BLOCK ALL OTHER INTERNET FORWARDING (Policy DROP)
       await execAsync(`${ipt} -P FORWARD DROP`);
 
       // 7. HTTP Redirect (Captive Portal)
+      // Use -I to ensure it's before any potential accept rules if we re-run, 
+      // though we flushed so it's fine. Using -A is standard for the chain base.
       await execAsync(`${ipt} -t nat -A PREROUTING -i ${settings.network.lanInterface} -p tcp --dport 80 -j DNAT --to-destination ${gateway}:80`);
 
       // 8. Masquerade (NAT) - Required for internet access
-      await execAsync(`${ipt} -t nat -A POSTROUTING -o ${settings.network.wanInterface} -j MASQUERADE`);
+      // Add generic MASQUERADE for LAN traffic going out, to handle any WAN interface
+      const lanSubnet = settings.network.gateway.substring(0, settings.network.gateway.lastIndexOf('.')) + '.0/24';
+      await execAsync(`${ipt} -t nat -A POSTROUTING -s ${lanSubnet} ! -d ${lanSubnet} -j MASQUERADE`);
+      
+      // Also keep specific interface masquerade as backup/legacy support if WAN interface is known
+      if (settings.network.wanInterface) {
+         try {
+           await execAsync(`${ipt} -t nat -A POSTROUTING -o ${settings.network.wanInterface} -j MASQUERADE`);
+         } catch {}
+      }
 
       // Store rules for reference (though flushing wipes them, so this is just for state tracking)
       this.iptablesRules = [
@@ -605,21 +621,32 @@ address=/#/${config.ipAddress}
     }
   }
 
+  private normalizeMac(mac: string): string {
+    return mac.replace(/-/g, ':').toLowerCase();
+  }
+
   async allowMACAddress(macAddress: string): Promise<void> {
     try {
+      const normalizedMac = this.normalizeMac(macAddress);
       const settings = getSettings();
       
       // Allow traffic from this MAC address
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
 
-      // 1. Bypass DNAT (Captive Portal) for this MAC
-      await execAsync(`${ipt} -t nat -I PREROUTING -m mac --mac-source ${macAddress} -j ACCEPT`);
+      console.log(`Allowing MAC: ${normalizedMac}`);
 
-      // 2. Allow Forwarding for this MAC
-      await execAsync(`${ipt} -I FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
+      // 1. Clean up any existing rules for this MAC first to avoid duplicates
+      await this.blockMACAddress(normalizedMac);
+
+      // 2. Bypass DNAT (Captive Portal) for this MAC
+      // We use -I to insert at the top, ensuring it runs before the captive portal redirect
+      await execAsync(`${ipt} -t nat -I PREROUTING -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+
+      // 3. Allow Forwarding for this MAC
+      await execAsync(`${ipt} -I FORWARD -m mac --mac-source ${normalizedMac} -j ACCEPT`);
       
-      console.log(`MAC address ${macAddress} allowed through captive portal`);
+      console.log(`MAC address ${normalizedMac} allowed through captive portal`);
     } catch (error) {
       console.error('Error allowing MAC address:', error);
       throw error;
@@ -628,21 +655,33 @@ address=/#/${config.ipAddress}
 
   async blockMACAddress(macAddress: string): Promise<void> {
     try {
+      const normalizedMac = this.normalizeMac(macAddress);
       // Remove rules for this MAC address
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
 
+      console.log(`Blocking MAC: ${normalizedMac}`);
+
       // 1. Remove DNAT bypass
-      try {
-        await execAsync(`${ipt} -t nat -D PREROUTING -m mac --mac-source ${macAddress} -j ACCEPT`);
-      } catch {}
+      // We loop to remove all instances just in case
+      while (true) {
+        try {
+          await execAsync(`${ipt} -t nat -D PREROUTING -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+        } catch {
+          break;
+        }
+      }
 
       // 2. Remove Forwarding allow
-      try {
-        await execAsync(`${ipt} -D FORWARD -m mac --mac-source ${macAddress} -j ACCEPT`);
-      } catch {}
+      while (true) {
+        try {
+          await execAsync(`${ipt} -D FORWARD -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+        } catch {
+          break;
+        }
+      }
       
-      console.log(`MAC address ${macAddress} blocked from captive portal`);
+      console.log(`MAC address ${normalizedMac} blocked from captive portal`);
     } catch (error) {
       console.error('Error blocking MAC address:', error);
       // Ignore errors if rule doesn't exist
