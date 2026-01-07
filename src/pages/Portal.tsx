@@ -35,8 +35,33 @@ const Portal: React.FC = () => {
   const [error, setError] = useState<string>('');
   const [connecting, setConnecting] = useState(false);
   const [showCoinModal, setShowCoinModal] = useState(false);
-  const [countdown, setCountdown] = useState(60);
   const [pesosInserted, setPesosInserted] = useState(0);
+  const [countdown, setCountdown] = useState(60);
+  const [internetStatus, setInternetStatus] = useState<'checking' | 'online' | 'offline' | null>(null);
+
+  // Check internet status when active
+  useEffect(() => {
+    if (sessionInfo?.isActive) {
+      setInternetStatus('checking');
+      const check = async () => {
+        try {
+          // Check server connectivity first
+          const res = await fetch('/api/portal/check-internet');
+          const data = await res.json();
+          if (data.connected) {
+             setInternetStatus('online');
+          } else {
+             setInternetStatus('offline');
+          }
+        } catch (e) {
+          setInternetStatus('offline');
+        }
+      };
+      check();
+      const interval = setInterval(check, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [sessionInfo?.isActive]);
   const [eventSource, setEventSource] = useState<EventSource | null>(null);
   const [rates, setRates] = useState<{ pesos: number; minutes: number }[]>([]);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
@@ -518,6 +543,14 @@ const Portal: React.FC = () => {
 
                 {/* Session Info */}
                 <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 mb-4`}>
+                  {internetStatus && (
+                    <div className={`mb-3 text-center text-sm font-medium ${
+                      internetStatus === 'online' ? 'text-green-500' : 
+                      internetStatus === 'offline' ? 'text-red-500' : 'text-yellow-500'
+                    }`}>
+                      Internet Status: {internetStatus.toUpperCase()}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center">
                       <Clock className="w-5 h-5 mr-2 text-blue-600" />

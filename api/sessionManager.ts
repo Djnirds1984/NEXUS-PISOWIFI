@@ -236,6 +236,9 @@ export class SessionManager {
     // Reschedule expiration timer
     this.scheduleSessionExpiration(normalizedMac, session.endTime);
 
+    // Ensure internet access is allowed (in case it was lost)
+    await networkManager.allowMACAddress(normalizedMac);
+
     console.log(`Session extended for ${normalizedMac}: +${additionalMinutes} minutes`);
   }
 

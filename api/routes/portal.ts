@@ -364,4 +364,21 @@ router.post('/redeem-voucher', async (req, res) => {
   }
 });
 
+// Check server internet connectivity
+router.get('/check-internet', async (req, res) => {
+  try {
+    const isConnected = await networkManager.checkInternetConnection();
+    res.json({
+      success: true,
+      connected: isConnected
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      connected: false,
+      error: 'Failed to check internet connection'
+    });
+  }
+});
+
 export default router;
