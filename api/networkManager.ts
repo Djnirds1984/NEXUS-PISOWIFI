@@ -1096,6 +1096,133 @@ server=8.8.4.4
     return Array.from(deviceMap.values());
   }
 
+  private async getLeasePaths(): Promise<string[]> {
+    return [
+      '/var/lib/misc/dnsmasq.leases',
+      '/var/lib/dnsmasq/dnsmasq.leases',
+      '/var/run/dnsmasq/dnsmasq.leases',
+      '/tmp/dnsmasq.leases'
+    ];
+  }
+
+  private async removeLeaseEntry(macAddress?: string, ipAddress?: string): Promise<void> {
+    if (process.platform === 'win32') return;
+    const paths = await this.getLeasePaths();
+    for (const p of paths) {
+      try {
+        const { stdout } = await execAsync(`cat ${p}`);
+        const lines = stdout.split('\n');
+        const filtered = lines.filter(l => {
+          const parts = l.trim().split(/\s+/);
+          const mac = (parts[1] || '').toLowerCase();
+          const ip = parts[2] || '';
+          if (macAddress && mac === this.normalizeMac(macAddress)) return false;
+          if (ipAddress && ip === ipAddress) return false;
+          return true;
+        }).join('\n');
+        await execAsync(`printf "%s" "${filtered}" > ${p}`);
+      } catch (e) {
+        console.warn(`Failed to process leases at ${p}:`, e instanceof Error ? e.message : String(e));
+      }
+    }
+    try {
+      await execAsync('systemctl reload dnsmasq');
+    } catch {
+      try {
+        const { stdout } = await execAsync('pidof dnsmasq');
+        const pid = stdout.trim();
+        if (pid) await execAsync(`kill -HUP ${pid}`);
+      } catch (e) {
+        console.warn('Failed to signal dnsmasq:', e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
+
+  private async flushNeighbor(ipAddress?: string): Promise<void> {
+    if (process.platform === 'win32') return;
+    if (!ipAddress) return;
+    const settings = getSettings();
+    const lan = settings.network.lanInterface;
+    try {
+      await execAsync(`ip neigh del ${ipAddress} dev ${lan}`);
+    } catch (e) {
+      console.warn('Failed to delete neighbor via ip:', e instanceof Error ? e.message : String(e));
+    }
+    try {
+      await execAsync(`arp -d ${ipAddress}`);
+    } catch (e) {
+      console.warn('Failed to delete ARP entry:', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async reinitializeClientNetwork(macAddress: string, ipAddress?: string): Promise<{
+    allowed: boolean;
+    leaseRefreshed: boolean;
+    neighborFlushed: boolean;
+  }> {
+    const normalizedMac = this.normalizeMac(macAddress);
+    let allowed = false;
+    let leaseRefreshed = false;
+    let neighborFlushed = false;
+    try {
+      await this.allowMACAddress(normalizedMac, ipAddress);
+      allowed = this.isMacAllowed(normalizedMac);
+    } catch (e) {
+      console.warn('allowMACAddress failed:', e instanceof Error ? e.message : String(e));
+    }
+    try {
+      await this.removeLeaseEntry(normalizedMac, ipAddress);
+      leaseRefreshed = true;
+    } catch (e) {
+      console.warn('removeLeaseEntry failed:', e instanceof Error ? e.message : String(e));
+    }
+    try {
+      await this.flushNeighbor(ipAddress);
+      neighborFlushed = true;
+    } catch (e) {
+      console.warn('flushNeighbor failed:', e instanceof Error ? e.message : String(e));
+    }
+    return { allowed, leaseRefreshed, neighborFlushed };
+  }
+
+  async verifyClientConnectivity(macAddress: string, ipAddress?: string): Promise<{
+    firewallAllowed: boolean;
+    ipAssigned: boolean;
+    dnsWorking: boolean;
+    gatewayReachable: boolean;
+  }> {
+    const firewallAllowed = this.isMacAllowed(macAddress);
+    let ipAssigned = false;
+    let dnsWorking = false;
+    let gatewayReachable = false;
+    try {
+      const devices = await this.listActiveDevices();
+      const found = devices.find(d => d.macAddress.toLowerCase() === this.normalizeMac(macAddress));
+      ipAssigned = !!(found && found.ipAddress);
+    } catch (e) {
+      console.warn('listActiveDevices failed:', e instanceof Error ? e.message : String(e));
+    }
+    try {
+      const servers = await this.getDNSServers();
+      dnsWorking = servers.length > 0;
+    } catch (e) {
+      console.warn('getDNSServers failed:', e instanceof Error ? e.message : String(e));
+    }
+    try {
+      const gw = await this.getDefaultGateway();
+      if (gw) {
+        if (process.platform === 'win32') {
+          await execAsync(`ping -n 1 ${gw}`);
+        } else {
+          await execAsync(`ping -c 1 ${gw}`);
+        }
+        gatewayReachable = true;
+      }
+    } catch {
+      gatewayReachable = false;
+    }
+    return { firewallAllowed, ipAssigned, dnsWorking, gatewayReachable };
+  }
   async refreshDeviceStatus(): Promise<void> {
     const list = await this.listActiveDevices();
     const now = new Date().toISOString();

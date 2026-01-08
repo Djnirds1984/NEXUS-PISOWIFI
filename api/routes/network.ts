@@ -240,4 +240,56 @@ router.post('/restart', async (req, res) => {
   }
 });
 
+// Reinitialize client connectivity
+router.post('/client/reinit', async (req, res) => {
+  try {
+    const { macAddress, ipAddress } = req.body;
+    if (!macAddress) {
+      return res.status(400).json({ success: false, error: 'macAddress is required' });
+    }
+    const result = await networkManager.reinitializeClientNetwork(macAddress, ipAddress);
+    const verify = await networkManager.verifyClientConnectivity(macAddress, ipAddress);
+    res.json({ success: true, data: { reinit: result, verify } });
+  } catch (error) {
+    console.error('Error reinitializing client network:', error);
+    res.status(500).json({ success: false, error: 'Failed to reinitialize client' });
+  }
+});
+
+// Verify client connectivity
+router.get('/client/verify', async (req, res) => {
+  try {
+    const macAddress = String(req.query.mac || '');
+    const ipAddress = String(req.query.ip || '');
+    if (!macAddress) {
+      return res.status(400).json({ success: false, error: 'mac is required' });
+    }
+    const verify = await networkManager.verifyClientConnectivity(macAddress, ipAddress || undefined);
+    res.json({ success: true, data: verify });
+  } catch (error) {
+    console.error('Error verifying client connectivity:', error);
+    res.status(500).json({ success: false, error: 'Failed to verify client' });
+  }
+});
+
+// Recover client if connectivity inactive
+router.post('/client/recover', async (req, res) => {
+  try {
+    const { macAddress, ipAddress } = req.body;
+    if (!macAddress) {
+      return res.status(400).json({ success: false, error: 'macAddress is required' });
+    }
+    const verify1 = await networkManager.verifyClientConnectivity(macAddress, ipAddress);
+    if (verify1.firewallAllowed && verify1.ipAssigned && verify1.gatewayReachable) {
+      return res.json({ success: true, data: { verify: verify1, action: 'noop' } });
+    }
+    const reinit = await networkManager.reinitializeClientNetwork(macAddress, ipAddress);
+    const verify2 = await networkManager.verifyClientConnectivity(macAddress, ipAddress);
+    res.json({ success: true, data: { reinit, verify: verify2 } });
+  } catch (error) {
+    console.error('Error recovering client connectivity:', error);
+    res.status(500).json({ success: false, error: 'Failed to recover client' });
+  }
+});
+
 export default router;

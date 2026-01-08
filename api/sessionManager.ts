@@ -218,6 +218,14 @@ export class SessionManager {
       } catch (e) {
         console.error(`Failed to restore network access for ${normalizedMac}:`, e);
       }
+      
+      try {
+        const reinit = await networkManager.reinitializeClientNetwork(normalizedMac, session.ipAddress);
+        const verify = await networkManager.verifyClientConnectivity(normalizedMac, session.ipAddress);
+        console.log(`Client network reinit for ${normalizedMac}:`, { reinit, verify });
+      } catch (e) {
+        console.warn(`Client reinit/verify failed for ${normalizedMac}:`, e instanceof Error ? e.message : String(e));
+      }
 
       // Schedule session expiration
       this.scheduleSessionExpiration(normalizedMac, session.endTime);

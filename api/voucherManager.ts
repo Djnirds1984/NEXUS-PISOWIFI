@@ -145,6 +145,12 @@ class VoucherManager {
           if (isExtension && ipAddress) {
               sessionManager.updateIpMapping(updatedSession.macAddress, ipAddress);
           }
+          
+          try {
+            await (await import('./networkManager.js')).networkManager.reinitializeClientNetwork(updatedSession.macAddress, ipAddress);
+          } catch (e) {
+            console.warn('Client reinit after voucher failed:', e instanceof Error ? e.message : String(e));
+          }
       }
 
       return { 

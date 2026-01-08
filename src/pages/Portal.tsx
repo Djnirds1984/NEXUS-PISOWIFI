@@ -129,6 +129,27 @@ const Portal: React.FC = () => {
     }
   }, [sessionInfo?.isActive]);
 
+  useEffect(() => {
+    const autoRecover = async () => {
+      if (!sessionInfo?.isActive) return;
+      if (internetStatus === 'offline') {
+        try {
+          const res = await fetch('/api/network/client/recover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ macAddress: sessionInfo.macAddress, ipAddress: deviceInfo?.ip })
+          });
+          const data = await res.json();
+          setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'auto-recover', data }, ...prev].slice(0, 50));
+          startPingChecker({ timeoutMs: 3000, retries: 2 });
+        } catch (e) {
+          setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'auto-recover-error', data: String(e) }, ...prev].slice(0, 50));
+        }
+      }
+    };
+    autoRecover();
+  }, [internetStatus, sessionInfo?.isActive]);
+
   const handleGoToInternet = async () => {
     setVerifyingConnection(true);
     try {
@@ -631,6 +652,20 @@ const Portal: React.FC = () => {
              }
 
              startPingChecker({ timeoutMs: 3000, retries: 2 });
+             
+             try {
+               const mac = data.data.session.macAddress;
+               const ip = deviceInfo?.ip;
+               const res2 = await fetch('/api/network/client/reinit', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({ macAddress: mac, ipAddress: ip })
+               });
+               const d2 = await res2.json();
+               setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'client-reinit', data: d2 }, ...prev].slice(0, 50));
+             } catch (e) {
+               setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'client-reinit-error', data: String(e) }, ...prev].slice(0, 50));
+             }
         }
       } else {
         setError(data.error || 'Failed to redeem voucher');
