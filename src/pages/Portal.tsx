@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket, RefreshCw } from 'lucide-react';
+import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket, RefreshCw, Check } from 'lucide-react';
 import { formatTimeRemaining, calculateTimeProgress } from '../utils/timeUtils';
 
 interface PortalSettings {
@@ -46,8 +46,9 @@ const Portal: React.FC = () => {
   const [mode, setMode] = useState<'connect' | 'extend'>('connect');
   const [displayTimeRemaining, setDisplayTimeRemaining] = useState<number>(0);
   const [syncAnchor, setSyncAnchor] = useState<{ serverMs: number; clientMs: number; remainingSec: number } | null>(null);
-  const [debugInfo, setDebugInfo] = useState<any | null>(null);
-  const [debugEvents, setDebugEvents] = useState<Array<{ ts: string; type: string; data: any }>>([]);
+  const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
+  const [debugEvents, setDebugEvents] = useState<Array<{ ts: string; type: string; data: unknown }>>([]);
+  const [voucherSuccess, setVoucherSuccess] = useState<string | null>(null);
 
   // Check internet status when active
   useEffect(() => {
@@ -65,7 +66,8 @@ const Portal: React.FC = () => {
              setInternetStatus('offline');
           }
           setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'check-internet', data }, ...prev].slice(0, 50));
-        } catch {
+        } catch (error) {
+          console.error('Internet check failed:', error);
           setInternetStatus('offline');
         }
       };
@@ -194,8 +196,8 @@ const Portal: React.FC = () => {
           refreshedAt: data.refreshedAt || new Date().toISOString()
         });
       }
-    } catch {
-      console.error('Error fetching portal data');
+    } catch (error) {
+      console.error('Error fetching portal data:', error);
       setError('Unable to load portal data');
     } finally {
       setLoading(false);
@@ -228,8 +230,8 @@ const Portal: React.FC = () => {
           setDisplayTimeRemaining(data.timeRemaining || 0);
         }
       }
-    } catch {
-      console.error('Error fetching session info');
+    } catch (error) {
+      console.error('Error fetching session info:', error);
       setError('Failed to fetch session time data');
     }
   };
@@ -255,7 +257,8 @@ const Portal: React.FC = () => {
           refreshedAt: data.refreshedAt || new Date().toISOString()
         });
       }
-    } catch {
+    } catch (error) {
+      console.error('Error fetching device info:', error);
       setDeviceInfo(prev => prev || {
         ip: 'N/A',
         mac: 'N/A',
@@ -305,9 +308,9 @@ const Portal: React.FC = () => {
       } else {
         setError(result.error || 'Failed to connect');
       }
-    } catch {
+    } catch (error) {
       setError('Connection failed');
-      console.error('Connection error');
+      console.error('Connection error:', error);
     } finally {
       setConnecting(false);
     }
@@ -327,9 +330,9 @@ const Portal: React.FC = () => {
         const result = await response.json();
         setError(result.error || 'Failed to disconnect');
       }
-    } catch (err) {
+    } catch (error) {
       setError('Disconnect failed');
-      console.error('Disconnect error:', err);
+      console.error('Disconnect error:', error);
     }
   };
 
@@ -359,9 +362,9 @@ const Portal: React.FC = () => {
       } else {
         setError(result.error || 'Failed to extend session');
       }
-    } catch {
+    } catch (error) {
       setError('Extension failed');
-      console.error('Extension error');
+      console.error('Extension error:', error);
     }
   };
 
@@ -404,8 +407,8 @@ const Portal: React.FC = () => {
           }
           setCountdown(60);
         }
-      } catch {
-        void 0;
+      } catch (error) {
+        console.error('Coin stream error:', error);
       }
     };
     setEventSource(es);
@@ -473,6 +476,10 @@ const Portal: React.FC = () => {
 
       if (data.success) {
         setVoucherCode('');
+        setVoucherSuccess(data.message || 'Voucher redeemed successfully!');
+        // Clear success message after 3 seconds
+        setTimeout(() => setVoucherSuccess(null), 3000);
+        
         // Immediately update session info
         fetchSessionInfo();
         // Force a connectivity check or navigation
@@ -494,12 +501,18 @@ const Portal: React.FC = () => {
                   remainingSec: data.data.timeRemaining || 0
                 });
              }
+
+             // Auto-redirect to internet after successful voucher redemption
+             setTimeout(() => {
+               handleGoToInternet();
+             }, 1500); // Wait 1.5 seconds to show success message
         }
       } else {
         setError(data.error || 'Failed to redeem voucher');
       }
-    } catch {
+    } catch (error) {
       setError('An error occurred while redeeming voucher');
+      console.error('Voucher redemption error:', error);
     } finally {
       setRedeemingVoucher(false);
     }
@@ -512,10 +525,12 @@ const Portal: React.FC = () => {
       const data = await res.json();
       setDebugInfo(data.data || data);
       setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'debug-info', data }, ...prev].slice(0, 50));
-    } catch {}
+    } catch (error) {
+      console.error('Debug info fetch error:', error);
+    }
   };
  
-  const renderBool = (v: any, fallback?: boolean) => {
+  const renderBool = (v: unknown, fallback?: boolean) => {
     if (v === true) return 'true';
     if (v === false) return 'false';
     if (typeof fallback === 'boolean') return String(fallback);
@@ -564,28 +579,53 @@ const Portal: React.FC = () => {
                 <span className="text-sm">{error}</span>
               </div>
             )}
+            
+            {voucherSuccess && (
+              <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg flex items-center">
+                <CheckCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+                <span className="text-sm">{voucherSuccess}</span>
+              </div>
+            )}
+            
+            {voucherSuccess && (
+              <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg flex items-center">
+                <CheckCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+                <span className="text-sm">{voucherSuccess}</span>
+              </div>
+            )}
             {!sessionInfo?.isActive && (
               <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 mb-4`}>
-                <div className="text-sm mb-2">Enter voucher code</div>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={voucherCode}
-                    onChange={(e) => setVoucherCode(e.target.value)}
-                    placeholder="Voucher Code"
-                    className={`flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border ${
-                      isDarkTheme ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900'
-                    }`}
-                  />
-                  <button
-                    onClick={handleRedeemVoucher}
-                    disabled={redeemingVoucher || !voucherCode.trim()}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50"
-                  >
-                    {redeemingVoucher ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ticket className="w-4 h-4" />}
-                  </button>
+                  <div className="text-sm mb-2">Enter voucher code</div>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={voucherCode}
+                      onChange={(e) => setVoucherCode(e.target.value)}
+                      placeholder="Voucher Code"
+                      className={`flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border ${
+                        isDarkTheme ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900'
+                      } ${voucherSuccess ? 'border-green-500 focus:border-green-500 focus:ring-green-500' : ''}`}
+                      disabled={redeemingVoucher}
+                    />
+                    <button
+                      onClick={handleRedeemVoucher}
+                      disabled={redeemingVoucher || !voucherCode.trim()}
+                      className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 transition-all duration-200 ${
+                        voucherSuccess 
+                          ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500' 
+                          : 'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500'
+                      }`}
+                    >
+                      {redeemingVoucher ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : voucherSuccess ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <Ticket className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
             )}
             {sessionInfo?.isActive && (
               <div className="space-y-4">
@@ -773,15 +813,22 @@ const Portal: React.FC = () => {
                       placeholder="Enter Voucher Code"
                       className={`flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border ${
                         isDarkTheme ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900'
-                      }`}
+                      } ${voucherSuccess ? 'border-green-500 focus:border-green-500 focus:ring-green-500' : ''}`}
+                      disabled={redeemingVoucher}
                     />
                     <button
                       onClick={handleRedeemVoucher}
                       disabled={redeemingVoucher || !voucherCode.trim()}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50"
+                      className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 transition-all duration-200 ${
+                        voucherSuccess 
+                          ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500' 
+                          : 'bg-purple-600 hover:bg-purple-700 focus:ring-purple-500'
+                      }`}
                     >
                       {redeemingVoucher ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : voucherSuccess ? (
+                        <Check className="w-4 h-4" />
                       ) : (
                         <Ticket className="w-4 h-4" />
                       )}
@@ -802,12 +849,12 @@ const Portal: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>MAC: {formatMAC(sessionInfo.macAddress || deviceInfo?.mac || '')}</div>
-                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>IP: {deviceInfo?.ip || debugInfo?.ip || 'N/A'}</div>
+                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>IP: {deviceInfo?.ip || (debugInfo?.ip as string) || 'N/A'}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Session Active: {String(debugInfo?.sessionActive ?? sessionInfo.isActive)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Time Remaining: {formatTimeRemaining((debugInfo?.timeRemaining ?? displayTimeRemaining) as number)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Server Connected: {renderBool(debugInfo?.serverConnected, internetStatus === 'online' ? true : internetStatus === 'offline' ? false : undefined)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Client Allowed: {renderBool(debugInfo?.clientAllowed, internetStatus === 'online' ? true : undefined)}</div>
-                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>iptables Rules: {debugInfo?.iptablesRuleCount ?? 'N/A'}</div>
+                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>iptables Rules: {(debugInfo?.iptablesRuleCount as number) ?? 'N/A'}</div>
                   </div>
                   <div className="mt-3">
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'} text-xs mb-1`}>Events</div>
@@ -936,12 +983,12 @@ const Portal: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>MAC: {formatMAC(sessionInfo.macAddress || deviceInfo?.mac || '')}</div>
-                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>IP: {deviceInfo?.ip || debugInfo?.ip || 'N/A'}</div>
+                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>IP: {deviceInfo?.ip || (debugInfo?.ip as string) || 'N/A'}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Session Active: {String(debugInfo?.sessionActive ?? sessionInfo.isActive)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Time Remaining: {formatTimeRemaining((debugInfo?.timeRemaining ?? displayTimeRemaining) as number)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Server Connected: {String(debugInfo?.serverConnected)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Client Allowed: {String(debugInfo?.clientAllowed)}</div>
-                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>iptables Rules: {debugInfo?.iptablesRuleCount ?? 'N/A'}</div>
+                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>iptables Rules: {(debugInfo?.iptablesRuleCount as number) ?? 'N/A'}</div>
                   </div>
                   <div className="mt-3">
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'} text-xs mb-1`}>Events</div>
