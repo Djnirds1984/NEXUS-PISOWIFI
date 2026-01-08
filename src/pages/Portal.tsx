@@ -514,6 +514,21 @@ const Portal: React.FC = () => {
       setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'debug-info', data }, ...prev].slice(0, 50));
     } catch {}
   };
+ 
+  const renderBool = (v: any, fallback?: boolean) => {
+    if (v === true) return 'true';
+    if (v === false) return 'false';
+    if (typeof fallback === 'boolean') return String(fallback);
+    return 'Unknown';
+  };
+ 
+  useEffect(() => {
+    const shouldPoll = !!(sessionInfo?.macAddress || deviceInfo?.mac);
+    if (!shouldPoll) return;
+    fetchDebugInfo();
+    const interval = setInterval(fetchDebugInfo, 10000);
+    return () => clearInterval(interval);
+  }, [sessionInfo?.macAddress, deviceInfo?.mac, sessionInfo?.isActive]);
 
   const backgroundStyle = portalSettings.backgroundImage 
     ? { backgroundImage: `url(${portalSettings.backgroundImage})` }
@@ -713,8 +728,8 @@ const Portal: React.FC = () => {
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>IP: {deviceInfo?.ip || debugInfo?.ip || 'N/A'}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Session Active: {String(debugInfo?.sessionActive ?? sessionInfo.isActive)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Time Remaining: {formatTimeRemaining((debugInfo?.timeRemaining ?? displayTimeRemaining) as number)}</div>
-                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Server Connected: {String(debugInfo?.serverConnected)}</div>
-                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Client Allowed: {String(debugInfo?.clientAllowed)}</div>
+                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Server Connected: {renderBool(debugInfo?.serverConnected, internetStatus === 'online' ? true : internetStatus === 'offline' ? false : undefined)}</div>
+                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Client Allowed: {renderBool(debugInfo?.clientAllowed, internetStatus === 'online' ? true : undefined)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>iptables Rules: {debugInfo?.iptablesRuleCount ?? 'N/A'}</div>
                   </div>
                   <div className="mt-3">
