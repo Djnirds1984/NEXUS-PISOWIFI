@@ -49,7 +49,7 @@ export class NetworkManager {
     this.currentConfig = {
       interface: settings.network.lanInterface,
       ssid: 'PisoWiFi-Hotspot',
-      password: 'pisowifi123',
+      security: 'open', // Permanently set to open security
       channel: 6,
       ipAddress: settings.network.gateway,
       dhcpRange: settings.network.dhcpRange
@@ -332,7 +332,13 @@ iface ${interfaceName} inet static
 
   async setupHotspot(config: Partial<HotspotConfig> = {}): Promise<void> {
     try {
-      const finalConfig = { ...this.currentConfig, ...config };
+      // Force open security mode permanently
+      const finalConfig: HotspotConfig = { 
+        ...this.currentConfig!, 
+        ...config,
+        security: 'open', // Permanently enforce open security
+        password: undefined // Remove any password configuration
+      };
       
       // Install required packages if not present
       await this.installHotspotPackages();

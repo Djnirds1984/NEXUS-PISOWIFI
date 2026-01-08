@@ -135,11 +135,20 @@ router.post('/hotspot', async (req, res) => {
       });
     }
 
+    // Security validation: permanently enforce open security mode
+    if (security && security !== 'open') {
+      return res.status(400).json({
+        success: false,
+        error: 'Security mode is permanently set to open (no password). Password-protected networks are not allowed.'
+      });
+    }
+
+    // Permanently enforce open security mode - ignore any security parameter
     const config = {
       interface: interfaceName,
       ssid,
-      password,
-      security: (security === 'open' ? 'open' : 'wpa2') as 'open' | 'wpa2',
+      password: '', // Always empty for open security
+      security: 'open' as 'open', // Permanently set to open security
       channel: channel || 6,
       ipAddress: ipAddress || '10.0.0.1',
       dhcpRange: dhcpRange || '10.0.0.10-10.0.0.250'
@@ -149,7 +158,7 @@ router.post('/hotspot', async (req, res) => {
 
     res.json({
       success: true,
-      message: `Hotspot "${ssid}" configured successfully`
+      message: `Hotspot "${ssid}" configured successfully with open security (no password required)`
     });
   } catch (error) {
     console.error('Error setting up hotspot:', error);

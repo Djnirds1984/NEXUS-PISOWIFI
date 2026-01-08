@@ -11,6 +11,9 @@
       "lanInterface": "wlan0",
       "gateway": "10.0.0.1",
       "dhcpRange": "10.0.0.10-10.0.0.250",
+      "ssid": "PisoWiFi-Hotspot",
+      "security": "open",
+      "channel": 6,
       "vlanInterfaces": []
     },
     "rates": {

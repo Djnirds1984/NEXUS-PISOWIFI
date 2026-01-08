@@ -92,8 +92,7 @@ const defaultData: DatabaseSchema = {
       gateway: '10.0.0.1',
       dhcpRange: '10.0.0.10-10.0.0.250',
       ssid: 'PisoWiFi-Hotspot',
-      password: 'pisowifi123',
-      security: 'wpa2',
+      security: 'open', // Permanently set to open security (no password)
       channel: 6,
       vlanInterfaces: []
     },
