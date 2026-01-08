@@ -472,8 +472,18 @@ const Portal: React.FC = () => {
                 isActive: true,
                 macAddress: data.data.session.macAddress,
                 timeRemaining: data.data.timeRemaining || 0,
-                totalPesos: data.data.session.pesos
+                totalPesos: data.data.session.pesos,
+                sessionEndTime: data.data.sessionEndTime,
+                serverTime: data.data.serverTime
              } as SessionInfo));
+
+             if (data.data.serverTime) {
+                setSyncAnchor({
+                  serverMs: new Date(data.data.serverTime).getTime(), // Ensure timestamp format
+                  clientMs: Date.now(),
+                  remainingSec: data.data.timeRemaining || 0
+                });
+             }
         }
       } else {
         setError(data.error || 'Failed to redeem voucher');

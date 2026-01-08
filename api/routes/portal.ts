@@ -396,9 +396,9 @@ router.post('/disconnect', async (req, res) => {
 router.post('/redeem-voucher', async (req, res) => {
   try {
     let { macAddress, code } = req.body;
+    const ip = (req.ip || '').replace('::ffff:', '');
 
     if (!macAddress) {
-      const ip = (req.ip || '').replace('::ffff:', '');
       macAddress = (await resolveMACByIP(ip)) || '';
     }
 
@@ -418,7 +418,7 @@ router.post('/redeem-voucher', async (req, res) => {
       });
     }
 
-    const result = await voucherManager.redeemVoucher(code, macAddress);
+    const result = await voucherManager.redeemVoucher(code, macAddress, ip);
 
     if (result.success) {
       res.json({
@@ -426,7 +426,9 @@ router.post('/redeem-voucher', async (req, res) => {
         message: result.message,
         data: {
           session: result.session,
-          timeRemaining: sessionManager.getSessionTimeRemaining(macAddress)
+          timeRemaining: sessionManager.getSessionTimeRemaining(macAddress),
+          serverTime: new Date().toISOString(),
+          sessionEndTime: result.session?.endTime
         }
       });
     } else {
