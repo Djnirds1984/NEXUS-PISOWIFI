@@ -86,7 +86,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     !req.path.startsWith('/favicon') &&
     !req.path.startsWith('/manifest') &&
     !req.path.startsWith('/@vite') &&
-    !req.path.startsWith('/index.html')
+    !req.path.startsWith('/index.html') &&
+    !req.path.startsWith('/generate_204') &&
+    !req.path.startsWith('/hotspot-detect.html') &&
+    !req.path.startsWith('/ncsi.txt') &&
+    !req.path.startsWith('/connecttest.txt') &&
+    !req.path.startsWith('/redirect') &&
+    !req.path.startsWith('/success')
   ) {
     return res.redirect('/portal')
   }
@@ -97,25 +103,67 @@ app.use((req: Request, res: Response, next: NextFunction) => {
  * Captive portal detection endpoints
  */
 app.get('/generate_204', (req, res) => {
-  res.redirect('/portal')
+  const clientIp = getClientIp(req)
+  const session = sessionManager.getSessionByIp(clientIp)
+  if (session && session.active) {
+    res.status(204).end()
+  } else {
+    res.redirect('/portal')
+  }
 })
 app.get('/hotspot-detect.html', (req, res) => {
-  res.redirect('/portal')
+  const clientIp = getClientIp(req)
+  const session = sessionManager.getSessionByIp(clientIp)
+  if (session && session.active) {
+    res.status(204).end()
+  } else {
+    res.redirect('/portal')
+  }
 })
 app.get('/ncsi.txt', (req, res) => {
-  res.redirect('/portal')
+  const clientIp = getClientIp(req)
+  const session = sessionManager.getSessionByIp(clientIp)
+  if (session && session.active) {
+    res.status(204).end()
+  } else {
+    res.redirect('/portal')
+  }
 })
 app.get('/connecttest.txt', (req, res) => {
-  res.redirect('/portal')
+  const clientIp = getClientIp(req)
+  const session = sessionManager.getSessionByIp(clientIp)
+  if (session && session.active) {
+    res.status(204).end()
+  } else {
+    res.redirect('/portal')
+  }
 })
 app.get('/redirect', (req, res) => {
-  res.redirect('/portal')
+  const clientIp = getClientIp(req)
+  const session = sessionManager.getSessionByIp(clientIp)
+  if (session && session.active) {
+    res.status(204).end()
+  } else {
+    res.redirect('/portal')
+  }
 })
 app.get('/success', (req, res) => {
-  res.type('text/plain').send('Success')
+  const clientIp = getClientIp(req)
+  const session = sessionManager.getSessionByIp(clientIp)
+  if (session && session.active) {
+    res.status(204).end()
+  } else {
+    res.redirect('/portal')
+  }
 })
 app.get('/success.html', (req, res) => {
-  res.status(200).send('<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>')
+  const clientIp = getClientIp(req)
+  const session = sessionManager.getSessionByIp(clientIp)
+  if (session && session.active) {
+    res.status(204).end()
+  } else {
+    res.redirect('/portal')
+  }
 })
 
 /**
