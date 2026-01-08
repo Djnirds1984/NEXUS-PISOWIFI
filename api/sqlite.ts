@@ -27,7 +27,10 @@ export function getDB(): Database.Database {
       pesos INTEGER,
       minutes INTEGER,
       active INTEGER,
-      ipAddress TEXT
+      ipAddress TEXT,
+      paused INTEGER DEFAULT 0,
+      pausedAt TEXT,
+      pausedDuration INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS devices (
       macAddress TEXT PRIMARY KEY,
@@ -86,12 +89,15 @@ export function kvAll(): KVItem[] {
 export function sessionsInsert(session: any): void {
   const dbi = getDB();
   dbi.prepare(`
-    INSERT INTO sessions(macAddress,startTime,endTime,pesos,minutes,active,ipAddress)
-    VALUES(@macAddress,@startTime,@endTime,@pesos,@minutes,@active,@ipAddress)
+    INSERT INTO sessions(macAddress,startTime,endTime,pesos,minutes,active,ipAddress,paused,pausedAt,pausedDuration)
+    VALUES(@macAddress,@startTime,@endTime,@pesos,@minutes,@active,@ipAddress,@paused,@pausedAt,@pausedDuration)
   `).run({
     ...session,
     active: session.active ? 1 : 0,
-    ipAddress: session.ipAddress || null
+    ipAddress: session.ipAddress || null,
+    paused: session.paused ? 1 : 0,
+    pausedAt: session.pausedAt || null,
+    pausedDuration: session.pausedDuration || 0
   });
 }
 
@@ -114,7 +120,10 @@ export function sessionsUpdate(macAddress: string, updates: Partial<any>): void 
     ...updates,
     macAddress,
     originalStartTime: existing.startTime,
-    active: next.active ? 1 : 0
+    active: next.active ? 1 : 0,
+    paused: next.paused ? 1 : 0,
+    pausedAt: next.pausedAt || null,
+    pausedDuration: next.pausedDuration || 0
   });
 }
 
@@ -126,13 +135,21 @@ export function sessionsRemove(macAddress: string): void {
 export function sessionsAll(): any[] {
   const dbi = getDB();
   const rows = dbi.prepare('SELECT * FROM sessions').all() as any[];
-  return rows.map(r => ({ ...r, active: !!r.active }));
+  return rows.map(r => ({ 
+    ...r, 
+    active: !!r.active,
+    paused: !!r.paused
+  }));
 }
 
 export function sessionsActive(): any[] {
   const dbi = getDB();
   const rows = dbi.prepare('SELECT * FROM sessions WHERE active=1').all() as any[];
-  return rows.map(r => ({ ...r, active: true }));
+  return rows.map(r => ({ 
+    ...r, 
+    active: true,
+    paused: !!r.paused
+  }));
 }
 
 export function sessionsCleanupExpired(): void {

@@ -9,6 +9,9 @@ export interface UserSession {
   pesos: number;
   minutes: number;
   active: boolean;
+  paused?: boolean;
+  pausedAt?: Date;
+  pausedDuration?: number;
 }
 
 export interface SessionStats {
@@ -44,10 +47,33 @@ export class SessionManager {
         ...session,
         macAddress: normalizedMac,
         startTime: new Date(session.startTime),
-        endTime: new Date(session.endTime)
+        endTime: new Date(session.endTime),
+        paused: session.paused || false,
+        pausedAt: session.pausedAt ? new Date(session.pausedAt) : undefined,
+        pausedDuration: session.pausedDuration || 0
       };
       
       const now = new Date();
+      
+      // Handle paused sessions
+      if (userSession.paused && userSession.pausedAt) {
+        console.log(`Session for ${normalizedMac} is paused. Resuming to recalculate time.`);
+        // If session was paused when system went down, we need to resume it to recalculate time
+        const pauseDuration = Math.floor((now.getTime() - userSession.pausedAt.getTime()) / 1000);
+        userSession.pausedDuration = (userSession.pausedDuration || 0) + pauseDuration;
+        userSession.endTime = new Date(userSession.endTime.getTime() + pauseDuration * 1000);
+        userSession.paused = false;
+        userSession.pausedAt = undefined;
+        
+        // Update database to reflect the resumed state
+        updateSession(normalizedMac, {
+          paused: false,
+          pausedAt: null,
+          pausedDuration: userSession.pausedDuration,
+          endTime: userSession.endTime.toISOString()
+        });
+      }
+      
       if (userSession.endTime <= now) {
          // Session expired while down
          console.log(`Session for ${normalizedMac} expired during downtime (Expired: ${userSession.endTime.toISOString()})`);
@@ -92,7 +118,10 @@ export class SessionManager {
             ...dbSession,
             macAddress: normalizedMac,
             startTime: new Date(dbSession.startTime),
-            endTime: new Date(dbSession.endTime)
+            endTime: new Date(dbSession.endTime),
+            paused: dbSession.paused || false,
+            pausedAt: dbSession.pausedAt ? new Date(dbSession.pausedAt) : undefined,
+            pausedDuration: dbSession.pausedDuration || 0
           };
           await this.syncSessionState(userSession);
         }
@@ -150,14 +179,17 @@ export class SessionManager {
         endTime,
         pesos,
         minutes,
-        active: true
+        active: true,
+        paused: false,
+        pausedDuration: 0
       };
 
       // Add to database
       addSession({
         ...session,
         startTime: session.startTime.toISOString(),
-        endTime: session.endTime.toISOString()
+        endTime: session.endTime.toISOString(),
+        pausedAt: null
       });
       
       return session;
@@ -173,7 +205,18 @@ export class SessionManager {
         this.ipToMacMap.set(session.ipAddress, normalizedMac);
       }
 
-      // Allow internet access
+      // Handle paused sessions - don't allow internet access
+      if (session.paused) {
+        console.log(`Session ${normalizedMac} is paused, blocking internet access`);
+        try {
+          await networkManager.blockMACAddress(normalizedMac);
+        } catch (e) {
+          console.error(`Failed to block network access for paused session ${normalizedMac}:`, e);
+        }
+        return; // Don't schedule expiration for paused sessions
+      }
+
+      // Allow internet access for active sessions
       try {
         await networkManager.allowMACAddress(normalizedMac, session.ipAddress);
       } catch (e) {
@@ -213,12 +256,15 @@ export class SessionManager {
         endTime,
         pesos: 0,
         minutes,
-        active: true
+        active: true,
+        paused: false,
+        pausedDuration: 0
       };
       addSession({
         ...session,
         startTime: session.startTime.toISOString(),
-        endTime: session.endTime.toISOString()
+        endTime: session.endTime.toISOString(),
+        pausedAt: null
       });
       
       await this.syncSessionState(session);
@@ -315,6 +361,11 @@ export class SessionManager {
     const session = this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
     if (!session || !session.active) {
       return 0;
+    }
+
+    // If session is paused, return the time remaining when it was paused
+    if (session.paused) {
+      return Math.max(0, Math.floor((session.pausedAt!.getTime() - session.startTime.getTime()) / 1000));
     }
 
     const now = new Date();
@@ -439,6 +490,85 @@ export class SessionManager {
     return sessions.filter((session: any) => 
       session.startTime.startsWith(dateString) && session.active
     ).length;
+  }
+
+  async pauseSession(macAddress: string): Promise<void> {
+    const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
+    const session = this.activeSessions.get(normalizedMac);
+    
+    if (!session || !session.active) {
+      throw new Error('Session not found or inactive');
+    }
+
+    if (session.paused) {
+      throw new Error('Session is already paused');
+    }
+
+    // Update session state
+    session.paused = true;
+    session.pausedAt = new Date();
+    session.pausedDuration = session.pausedDuration || 0;
+
+    // Update database
+    updateSession(normalizedMac, {
+      paused: true,
+      pausedAt: session.pausedAt.toISOString(),
+      pausedDuration: session.pausedDuration
+    });
+
+    // Cancel the existing timer since we're pausing
+    const timer = this.sessionTimers.get(normalizedMac);
+    if (timer) {
+      clearTimeout(timer);
+      this.sessionTimers.delete(normalizedMac);
+    }
+
+    // Block internet access
+    await networkManager.blockMACAddress(normalizedMac);
+
+    console.log(`Session paused for ${normalizedMac} at ${session.pausedAt.toISOString()}`);
+  }
+
+  async resumeSession(macAddress: string): Promise<void> {
+    const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
+    const session = this.activeSessions.get(normalizedMac);
+    
+    if (!session || !session.active) {
+      throw new Error('Session not found or inactive');
+    }
+
+    if (!session.paused || !session.pausedAt) {
+      throw new Error('Session is not paused');
+    }
+
+    // Calculate paused duration
+    const now = new Date();
+    const pauseDuration = Math.floor((now.getTime() - session.pausedAt.getTime()) / 1000); // in seconds
+    session.pausedDuration = (session.pausedDuration || 0) + pauseDuration;
+
+    // Extend session end time by the pause duration
+    const additionalMs = pauseDuration * 1000;
+    session.endTime = new Date(session.endTime.getTime() + additionalMs);
+
+    // Reset pause state
+    session.paused = false;
+    session.pausedAt = undefined;
+
+    // Update database
+    updateSession(normalizedMac, {
+      paused: false,
+      pausedAt: null,
+      pausedDuration: session.pausedDuration,
+      endTime: session.endTime.toISOString()
+    });
+
+    // Restore internet access
+    await networkManager.allowMACAddress(normalizedMac, session.ipAddress);
+
+    // Reschedule session expiration
+    this.scheduleSessionExpiration(normalizedMac, session.endTime);
+
+    console.log(`Session resumed for ${normalizedMac}. Extended by ${pauseDuration} seconds. New end time: ${session.endTime.toISOString()}`);
   }
 
   cleanup(): void {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket, RefreshCw, Check } from 'lucide-react';
+import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket, RefreshCw, Check, Pause, Play } from 'lucide-react';
 import { formatTimeRemaining, calculateTimeProgress } from '../utils/timeUtils';
 
 interface PortalSettings {
@@ -17,6 +17,9 @@ interface SessionInfo {
   totalMinutes?: number;
   serverTime?: number;
   sessionEndTime?: string | null;
+  isPaused?: boolean;
+  pausedAt?: string | null;
+  pausedDuration?: number;
 }
 
 interface DeviceInfo {
@@ -49,6 +52,8 @@ const Portal: React.FC = () => {
   const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
   const [debugEvents, setDebugEvents] = useState<Array<{ ts: string; type: string; data: unknown }>>([]);
   const [voucherSuccess, setVoucherSuccess] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [pausingSession, setPausingSession] = useState(false);
 
   // Check internet status when active
   useEffect(() => {
@@ -174,6 +179,7 @@ const Portal: React.FC = () => {
           serverTime: data.serverTime || undefined,
           sessionEndTime: data.sessionEndTime ?? null
         });
+        setIsPaused(data.isPaused || false);
         if (typeof data.serverTime === 'number') {
           setSyncAnchor({
             serverMs: data.serverTime,
@@ -529,6 +535,74 @@ const Portal: React.FC = () => {
       console.error('Debug info fetch error:', error);
     }
   };
+
+  const handlePauseSession = async () => {
+    if (!sessionInfo?.macAddress) return;
+    
+    try {
+      setPausingSession(true);
+      setError('');
+      
+      const response = await fetch('/api/portal/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ macAddress: sessionInfo.macAddress })
+      });
+
+      const result = await response.json();
+      setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'pause-session', data: result }, ...prev].slice(0, 50));
+
+      if (response.ok && result.success) {
+        setIsPaused(true);
+        setSessionInfo(prev => prev ? { ...prev, isActive: false } : null);
+      } else {
+        setError(result.error || 'Failed to pause session');
+      }
+    } catch (error) {
+      setError('Failed to pause session');
+      console.error('Pause session error:', error);
+    } finally {
+      setPausingSession(false);
+    }
+  };
+
+  const handleResumeSession = async () => {
+    if (!sessionInfo?.macAddress) return;
+    
+    try {
+      setPausingSession(true);
+      setError('');
+      
+      const response = await fetch('/api/portal/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ macAddress: sessionInfo.macAddress })
+      });
+
+      const result = await response.json();
+      setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'resume-session', data: result }, ...prev].slice(0, 50));
+
+      if (response.ok && result.success) {
+        setIsPaused(false);
+        setSessionInfo(prev => prev ? { ...prev, isActive: true } : null);
+        // Update sync anchor with new server time
+        if (result.data?.serverTime) {
+          setSyncAnchor({
+            serverMs: result.data.serverTime,
+            clientMs: Date.now(),
+            remainingSec: result.data.timeRemaining || 0
+          });
+        }
+      } else {
+        setError(result.error || 'Failed to resume session');
+      }
+    } catch (error) {
+      setError('Failed to resume session');
+      console.error('Resume session error:', error);
+    } finally {
+      setPausingSession(false);
+    }
+  };
  
   const renderBool = (v: unknown, fallback?: boolean) => {
     if (v === true) return 'true';
@@ -629,6 +703,12 @@ const Portal: React.FC = () => {
             )}
             {sessionInfo?.isActive && (
               <div className="space-y-4">
+                {isPaused && (
+                  <div className="p-3 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-lg flex items-center justify-center">
+                    <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+                    <span className="font-semibold">Time is paused</span>
+                  </div>
+                )}
                 <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
@@ -639,9 +719,28 @@ const Portal: React.FC = () => {
                   </div>
                 </div>
                 <button
+                  onClick={isPaused ? handleResumeSession : handlePauseSession}
+                  disabled={pausingSession}
+                  className={`w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 ${
+                    isPaused
+                      ? 'bg-green-600 hover:bg-green-700 text-white'
+                      : 'bg-orange-600 hover:bg-orange-700 text-white'
+                  } ${pausingSession ? 'opacity-75 cursor-not-allowed' : ''}`}
+                >
+                  {pausingSession ? (
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                  ) : isPaused ? (
+                    'Resume Session'
+                  ) : (
+                    'Pause Session'
+                  )}
+                </button>
+                <button
                   onClick={handleGoToInternet}
-                  disabled={verifyingConnection}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200"
+                  disabled={verifyingConnection || isPaused}
+                  className={`w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 ${
+                    (verifyingConnection || isPaused) ? 'opacity-75 cursor-not-allowed' : ''
+                  }`}
                 >
                   {verifyingConnection ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Go to Internet'}
                 </button>
@@ -679,18 +778,28 @@ const Portal: React.FC = () => {
         <div className={`fixed top-0 left-0 right-0 z-50 px-4 py-3 shadow-lg backdrop-blur-md transition-colors duration-300 ${
           isDarkTheme ? 'bg-gray-900/90 text-white border-b border-gray-700' : 'bg-white/90 text-gray-900 border-b border-gray-200'
         }`}>
-          <div className="max-w-md mx-auto flex justify-between items-center">
-             <div className="flex items-center space-x-2">
-               <Clock className={`w-5 h-5 ${displayTimeRemaining < 300 && sessionInfo.isActive ? 'text-red-500 animate-pulse' : 'text-blue-500'}`} />
-               <span className="font-semibold text-sm uppercase tracking-wider opacity-80">
-                 {sessionInfo.isActive ? 'Time Remaining' : displayTimeRemaining > 0 ? 'Time Remaining' : 'Time Status'}
+          <div className="max-w-md mx-auto">
+            {isPaused && (
+              <div className="mb-2 text-center">
+                <div className="inline-flex items-center px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-semibold">
+                  <AlertCircle className="w-3 h-3 mr-1" />
+                  TIME IS PAUSED
+                </div>
+              </div>
+            )}
+            <div className="flex justify-between items-center">
+               <div className="flex items-center space-x-2">
+                 <Clock className={`w-5 h-5 ${displayTimeRemaining < 300 && sessionInfo.isActive && !isPaused ? 'text-red-500 animate-pulse' : 'text-blue-500'}`} />
+                 <span className="font-semibold text-sm uppercase tracking-wider opacity-80">
+                   {sessionInfo.isActive && !isPaused ? 'Time Remaining' : displayTimeRemaining > 0 ? 'Time Remaining' : 'Time Status'}
+                 </span>
+               </div>
+               <span className={`font-mono font-bold text-2xl tracking-widest ${
+                 displayTimeRemaining < 300 && sessionInfo.isActive && !isPaused ? 'text-red-500 animate-pulse' : (isDarkTheme ? 'text-white' : 'text-gray-900')
+               }`}>
+                 {formatTimeRemaining(displayTimeRemaining)}
                </span>
-             </div>
-             <span className={`font-mono font-bold text-2xl tracking-widest ${
-               displayTimeRemaining < 300 && sessionInfo.isActive ? 'text-red-500 animate-pulse' : (isDarkTheme ? 'text-white' : 'text-gray-900')
-             }`}>
-               {formatTimeRemaining(displayTimeRemaining)}
-             </span>
+            </div>
           </div>
         </div>
       )}
@@ -885,6 +994,12 @@ const Portal: React.FC = () => {
 
                 {/* Session Info */}
                 <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 mb-4`}>
+                  {isPaused && (
+                    <div className="mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-lg flex items-center justify-center">
+                      <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+                      <span className="font-semibold">Time is paused</span>
+                    </div>
+                  )}
                   {internetStatus && (
                     <div className={`mb-3 text-center text-sm font-medium ${
                       internetStatus === 'online' ? 'text-green-500' : 
@@ -929,11 +1044,42 @@ const Portal: React.FC = () => {
 
                 {/* Action Buttons */}
                 <div className="space-y-3">
+                  {/* Pause/Resume Button - Only show when session is active */}
+                  {sessionInfo?.isActive && (
+                    <button
+                      onClick={isPaused ? handleResumeSession : handlePauseSession}
+                      disabled={pausingSession}
+                      className={`w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center ${
+                        isPaused
+                          ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white'
+                          : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white'
+                      } ${pausingSession ? 'opacity-75 cursor-not-allowed' : ''}`}
+                      aria-label={isPaused ? 'Resume session' : 'Pause session'}
+                    >
+                      {pausingSession ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : isPaused ? (
+                        <>
+                          <Play className="w-5 h-5 mr-2" />
+                          Resume Session
+                        </>
+                      ) : (
+                        <>
+                          <Pause className="w-5 h-5 mr-2" />
+                          Pause Session
+                        </>
+                      )}
+                    </button>
+                  )}
+
                   <button
                     onClick={handleGoToInternet}
-                    disabled={verifyingConnection || internetStatus === 'offline'}
+                    disabled={verifyingConnection || internetStatus === 'offline' || isPaused}
                     className={`w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center ${
-                      (verifyingConnection || internetStatus === 'offline') ? 'opacity-75 cursor-not-allowed' : ''
+                      (verifyingConnection || internetStatus === 'offline' || isPaused) ? 'opacity-75 cursor-not-allowed' : ''
                     }`}
                   >
                     {verifyingConnection ? (

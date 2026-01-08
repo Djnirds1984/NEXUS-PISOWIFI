@@ -135,17 +135,21 @@ router.get('/status', async (req, res) => {
     const isActive = session ? session.active : (macAddress ? sessionManager.isSessionActive(macAddress) : false);
     const timeRemaining = session ? sessionManager.getSessionTimeRemaining(session.macAddress) : 0;
     const sessionEndTime = session ? session.endTime?.toISOString?.() : null;
+    const isPaused = session?.paused || false;
 
     res.json({
       success: true,
       data: {
-        connected: isActive,
+        connected: isActive && !isPaused,
         session: session || null,
         timeRemaining: isActive ? timeRemaining : 0,
         hasSession: !!session,
         macAddress, // Return resolved MAC
         serverTime, // For client synchronization
-        sessionEndTime // Helpful for UI and debugging
+        sessionEndTime, // Helpful for UI and debugging
+        isPaused, // Add pause status
+        pausedAt: session?.pausedAt || null,
+        pausedDuration: session?.pausedDuration || 0
       }
     });
   } catch (error) {
@@ -531,6 +535,132 @@ router.get('/debug', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to get debug info'
+    });
+  }
+});
+
+// Pause session
+router.post('/pause', async (req, res) => {
+  try {
+    let { macAddress } = req.body;
+    const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
+
+    if (!macAddress) {
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
+
+    if (!macAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'MAC address is required'
+      });
+    }
+
+    // Validate MAC address format
+    const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+    if (!macRegex.test(macAddress)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid MAC address format'
+      });
+    }
+
+    // Check if user has an active session
+    const session = sessionManager.getSession(macAddress);
+    if (!session || !session.active) {
+      return res.status(400).json({
+        success: false,
+        error: 'No active session found'
+      });
+    }
+
+    // Check if session is already paused
+    if (session.paused) {
+      return res.status(400).json({
+        success: false,
+        error: 'Session is already paused'
+      });
+    }
+
+    // Pause the session
+    await sessionManager.pauseSession(macAddress);
+
+    res.json({
+      success: true,
+      message: 'Session paused successfully',
+      data: {
+        timeRemaining: sessionManager.getSessionTimeRemaining(macAddress),
+        pausedTime: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error pausing session:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to pause session'
+    });
+  }
+});
+
+// Resume session
+router.post('/resume', async (req, res) => {
+  try {
+    let { macAddress } = req.body;
+    const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
+
+    if (!macAddress) {
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
+
+    if (!macAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'MAC address is required'
+      });
+    }
+
+    // Validate MAC address format
+    const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+    if (!macRegex.test(macAddress)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid MAC address format'
+      });
+    }
+
+    // Check if user has an active session
+    const session = sessionManager.getSession(macAddress);
+    if (!session || !session.active) {
+      return res.status(400).json({
+        success: false,
+        error: 'No active session found'
+      });
+    }
+
+    // Check if session is not paused
+    if (!session.paused) {
+      return res.status(400).json({
+        success: false,
+        error: 'Session is not paused'
+      });
+    }
+
+    // Resume the session
+    await sessionManager.resumeSession(macAddress);
+
+    res.json({
+      success: true,
+      message: 'Session resumed successfully',
+      data: {
+        timeRemaining: sessionManager.getSessionTimeRemaining(macAddress),
+        serverTime: Date.now()
+      }
+    });
+  } catch (error) {
+    console.error('Error resuming session:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to resume session'
     });
   }
 });
