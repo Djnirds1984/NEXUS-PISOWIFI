@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Users, Plus, Trash2, Edit, Save } from 'lucide-react';
+import { Users, Plus, Trash2, Edit, Save, Pause, Play } from 'lucide-react';
 
 interface Device {
   macAddress: string;
@@ -22,6 +22,8 @@ const DevicesTab: React.FC = () => {
   const [newDevice, setNewDevice] = useState<{ macAddress: string; timeLimitMinutes: number }>({ macAddress: '', timeLimitMinutes: 0 });
   const [editing, setEditing] = useState<Record<string, Device>>({});
   const [countdown, setCountdown] = useState<Record<string, number>>({});
+  const [paused, setPaused] = useState<Record<string, boolean>>({});
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
 
   const fetchDevices = async () => {
     try {
@@ -34,15 +36,19 @@ const DevicesTab: React.FC = () => {
         const sres = await fetch('/api/session/active');
         if (sres.ok) {
           const sdata = await sres.json();
-          const active = (sdata.data || []) as Array<{ macAddress: string; timeRemaining: number }>;
+          const active = (sdata.data || []) as Array<{ macAddress: string; timeRemaining: number; paused?: boolean }>;
           const map: Record<string, number> = {};
+          const pmap: Record<string, boolean> = {};
           for (const s of active) {
             map[s.macAddress] = s.timeRemaining || 0;
+            pmap[s.macAddress] = !!s.paused;
           }
           setCountdown(map);
+          setPaused(pmap);
         }
       } catch {
         setCountdown(prev => prev);
+        setPaused(prev => prev);
       }
       setError(null);
     } catch (e) {
@@ -63,13 +69,64 @@ const DevicesTab: React.FC = () => {
       setCountdown(prev => {
         const next: Record<string, number> = {};
         for (const k of Object.keys(prev)) {
-          next[k] = Math.max(0, (prev[k] || 0) - 1);
+          const isPaused = paused[k];
+          next[k] = Math.max(0, (prev[k] || 0) - (isPaused ? 0 : 1));
         }
         return next;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [paused]);
+
+  const setActionBusy = (mac: string, busy: boolean) => {
+    setActionLoading(prev => ({ ...prev, [mac]: busy }));
+  };
+
+  const handlePause = async (mac: string) => {
+    try {
+      setError(null);
+      setActionBusy(mac, true);
+      setPaused(prev => ({ ...prev, [mac]: true }));
+      const res = await fetch('/api/portal/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ macAddress: mac })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setPaused(prev => ({ ...prev, [mac]: false }));
+        throw new Error(data.error || 'Failed to pause session');
+      }
+      await fetchDevices();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error pausing session');
+    } finally {
+      setActionBusy(mac, false);
+    }
+  };
+
+  const handleResume = async (mac: string) => {
+    try {
+      setError(null);
+      setActionBusy(mac, true);
+      setPaused(prev => ({ ...prev, [mac]: false }));
+      const res = await fetch('/api/portal/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ macAddress: mac })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setPaused(prev => ({ ...prev, [mac]: true }));
+        throw new Error(data.error || 'Failed to resume session');
+      }
+      await fetchDevices();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error resuming session');
+    } finally {
+      setActionBusy(mac, false);
+    }
+  };
 
   const handleAdd = async () => {
     try {
@@ -175,6 +232,7 @@ const DevicesTab: React.FC = () => {
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Connected</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time Limit</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time Remaining</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">First Seen</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Last Seen</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Bandwidth Cap</th>
@@ -230,6 +288,11 @@ const DevicesTab: React.FC = () => {
                         })()}
                       </span>
                     </td>
+                    <td className="px-4 py-2 text-sm">
+                      <span className={`px-2 py-1 rounded ${paused[d.macAddress] ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                        {paused[d.macAddress] ? 'Paused' : 'Running'}
+                      </span>
+                    </td>
                     <td className="px-4 py-2 text-sm">{d.firstSeen ? new Date(d.firstSeen).toLocaleString() : ''}</td>
                     <td className="px-4 py-2 text-sm">{d.lastSeen ? new Date(d.lastSeen).toLocaleString() : ''}</td>
                     <td className="px-4 py-2 text-sm">
@@ -261,6 +324,15 @@ const DevicesTab: React.FC = () => {
                           >
                             <Edit className="h-4 w-4" />
                             <span>Edit</span>
+                          </button>
+                          <button
+                            onClick={() => (paused[d.macAddress] ? handleResume(d.macAddress) : handlePause(d.macAddress))}
+                            disabled={actionLoading[d.macAddress] || (countdown[d.macAddress] || 0) <= 0}
+                            title={paused[d.macAddress] ? 'Resume internet access for this device' : 'Pause internet access and freeze session time'}
+                            className={`px-3 py-1 ${paused[d.macAddress] ? 'bg-green-600' : 'bg-yellow-600'} text-white rounded-md flex items-center space-x-2 disabled:opacity-50`}
+                          >
+                            {paused[d.macAddress] ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                            <span>{paused[d.macAddress] ? 'Resume' : 'Pause'}</span>
                           </button>
                           <button
                             onClick={() => handleDelete(d.macAddress)}
