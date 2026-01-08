@@ -547,6 +547,83 @@ const Portal: React.FC = () => {
     );
   }
 
+  const simpleMode = new URLSearchParams(window.location.search).get('simple') === '1';
+  if (simpleMode) {
+    return (
+      <div className={`min-h-screen ${isDarkTheme ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 to-indigo-100'} flex items-center justify-center p-4`}>
+        <div className={`w-full max-w-md ${isDarkTheme ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-2xl overflow-hidden`}>
+          <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gradient-to-r from-blue-600 to-indigo-600'} p-6 text-white text-center`}>
+            <Wifi className="w-12 h-12 mx-auto mb-3" />
+            <h1 className="text-2xl font-bold">{portalSettings.title}</h1>
+            <p className="text-sm opacity-90 mt-2">{portalSettings.welcomeMessage}</p>
+          </div>
+          <div className="p-6">
+            {error && (
+              <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg flex items-center">
+                <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+                <span className="text-sm">{error}</span>
+              </div>
+            )}
+            {!sessionInfo?.isActive && (
+              <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 mb-4`}>
+                <div className="text-sm mb-2">Enter voucher code</div>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={voucherCode}
+                    onChange={(e) => setVoucherCode(e.target.value)}
+                    placeholder="Voucher Code"
+                    className={`flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border ${
+                      isDarkTheme ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900'
+                    }`}
+                  />
+                  <button
+                    onClick={handleRedeemVoucher}
+                    disabled={redeemingVoucher || !voucherCode.trim()}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50"
+                  >
+                    {redeemingVoucher ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ticket className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+            {sessionInfo?.isActive && (
+              <div className="space-y-4">
+                <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                      <span className={`text-sm font-semibold ${isDarkTheme ? 'text-white' : 'text-gray-900'}`}>Connected</span>
+                    </div>
+                    <span className="font-mono font-bold text-2xl">{formatTimeRemaining(displayTimeRemaining)}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={handleGoToInternet}
+                  disabled={verifyingConnection}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200"
+                >
+                  {verifyingConnection ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Go to Internet'}
+                </button>
+                <button
+                  onClick={handleDisconnect}
+                  className={`w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 ${
+                    isDarkTheme ? 'bg-gray-600 hover:bg-gray-700 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+                  }`}
+                >
+                  Disconnect
+                </button>
+              </div>
+            )}
+          </div>
+          <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} px-6 py-3 text-center`}>
+            <p className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-gray-500'}`}>Powered by NEXUS PISOWIFI System</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen ${isDarkTheme ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 to-indigo-100'}`}>
       {/* Background Image Overlay */}
