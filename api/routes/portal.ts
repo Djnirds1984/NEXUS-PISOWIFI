@@ -449,10 +449,42 @@ router.post('/redeem-voucher', async (req, res) => {
 // Check server internet connectivity
 router.get('/check-internet', async (req, res) => {
   try {
-    const isConnected = await networkManager.checkInternetConnection();
+    let macAddress = (req.query.mac as string) || '';
+    const ip = (req.ip || '').replace('::ffff:', '');
+
+    if (!macAddress) {
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
+
+    // Fallback: If no MAC found, try finding session by IP
+    if (!macAddress && ip) {
+       const session = sessionManager.getSessionByIp(ip);
+       if (session) {
+         macAddress = session.macAddress;
+       }
+    }
+
+    const serverHasInternet = await networkManager.checkInternetConnection();
+    let clientIsAllowed = false;
+
+    if (macAddress) {
+      // Check if client is in the allowed list
+      clientIsAllowed = networkManager.isMacAllowed(macAddress);
+
+      // Self-healing: If client has active session but is NOT allowed, fix it
+      const session = sessionManager.getSession(macAddress);
+      if (session && session.active && !clientIsAllowed) {
+        console.log(`[Self-Healing] Restoring missing firewall rule for ${macAddress}`);
+        await networkManager.allowMACAddress(macAddress);
+        clientIsAllowed = true;
+      }
+    }
+
     res.json({
       success: true,
-      connected: isConnected
+      connected: serverHasInternet && clientIsAllowed,
+      serverConnected: serverHasInternet,
+      clientAllowed: clientIsAllowed
     });
   } catch (error) {
     res.status(500).json({

@@ -38,6 +38,7 @@ export interface HotspotConfig {
 export class NetworkManager {
   private currentConfig: HotspotConfig | null = null;
   private iptablesRules: string[] = [];
+  private allowedMacs: Set<string> = new Set();
 
   constructor() {
     this.loadConfiguration();
@@ -129,10 +130,26 @@ export class NetworkManager {
     }
   }
 
+  isMacAllowed(macAddress: string): boolean {
+    if (!macAddress) return false;
+    const normalizedMac = this.normalizeMac(macAddress);
+    return this.allowedMacs.has(normalizedMac);
+  }
+
   async checkInternetConnection(): Promise<boolean> {
-    if (process.platform === 'win32') return true;
+    // If on Windows, we are in mock mode.
+    // However, for the purpose of "Simulating a Firewall", 
+    // we should return true (upstream is up).
+    // The "Client is Allowed" check happens in isMacAllowed().
+    
+    // Check if the server actually has internet access (e.g. ping Google)
     try {
-      await execAsync('ping -c 1 8.8.8.8');
+      if (process.platform === 'win32') {
+         // On Windows, use a simpler ping command that works
+         await execAsync('ping -n 1 8.8.8.8');
+      } else {
+         await execAsync('ping -c 1 8.8.8.8');
+      }
       return true;
     } catch (error) {
       return false;
@@ -647,69 +664,82 @@ server=8.8.4.4
   }
 
   async allowMACAddress(macAddress: string): Promise<void> {
+    const normalizedMac = this.normalizeMac(macAddress);
+    
+    // Update state first
+    this.allowedMacs.add(normalizedMac);
+
+    if (process.platform === 'win32') {
+      console.log(`Windows detected: Allowing MAC ${macAddress} (mocked)`);
+      return;
+    }
+
     try {
-      const normalizedMac = this.normalizeMac(macAddress);
-      const settings = getSettings();
-      
-      // Allow traffic from this MAC address
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
-
-      console.log(`Allowing MAC: ${normalizedMac}`);
-
-      // 1. Clean up any existing rules for this MAC first to avoid duplicates
-      await this.blockMACAddress(normalizedMac);
-
-      // 2. Bypass DNAT (Captive Portal) for this MAC
-      // We use -I to insert at the top, ensuring it runs before the captive portal redirect
-      await execAsync(`${ipt} -t nat -I PREROUTING 1 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
-
-      // 3. Allow Forwarding for this MAC
-      // Insert at position 1 to bypass the catch-all DROP at the end
-      await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
-      
-      // 4. Also allow return traffic specifically for this MAC (optional but safe)
-      // await execAsync(`${ipt} -I FORWARD 1 -d ${ip_of_device} -j ACCEPT`); // Hard to know IP here reliably, relying on ESTABLISHED rule.
-
-      console.log(`MAC address ${normalizedMac} allowed through captive portal`);
+      await this.applyAllowRules(ipt, normalizedMac);
     } catch (error) {
       console.error('Error allowing MAC address:', error);
       throw error;
     }
   }
 
+  private async applyAllowRules(ipt: string, normalizedMac: string): Promise<void> {
+    console.log(`Applying firewall rules for MAC: ${normalizedMac}`);
+
+    // 1. Clean up any existing rules for this MAC first to avoid duplicates
+    // We can't call blockMACAddress because it removes from the Set!
+    await this.removeAllowRules(ipt, normalizedMac);
+
+    // 2. Bypass DNAT (Captive Portal) for this MAC
+    // We use -I to insert at the top, ensuring it runs before the captive portal redirect
+    await execAsync(`${ipt} -t nat -I PREROUTING 1 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+
+    // 3. Allow Forwarding for this MAC
+    // Insert at position 1 to bypass the catch-all DROP at the end
+    await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+    
+    console.log(`MAC address ${normalizedMac} allowed through captive portal`);
+  }
+
   async blockMACAddress(macAddress: string): Promise<void> {
+    const normalizedMac = this.normalizeMac(macAddress);
+    
+    // Update state
+    this.allowedMacs.delete(normalizedMac);
+
+    if (process.platform === 'win32') {
+      console.log(`Windows detected: Blocking MAC ${macAddress} (mocked)`);
+      return;
+    }
+
     try {
-      const normalizedMac = this.normalizeMac(macAddress);
-      // Remove rules for this MAC address
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
-
-      console.log(`Blocking MAC: ${normalizedMac}`);
-
-      // 1. Remove DNAT bypass
-      // We loop to remove all instances just in case
-      while (true) {
-        try {
-          await execAsync(`${ipt} -t nat -D PREROUTING -m mac --mac-source ${normalizedMac} -j ACCEPT`);
-        } catch {
-          break;
-        }
-      }
-
-      // 2. Remove Forwarding allow
-      while (true) {
-        try {
-          await execAsync(`${ipt} -D FORWARD -m mac --mac-source ${normalizedMac} -j ACCEPT`);
-        } catch {
-          break;
-        }
-      }
-      
+      await this.removeAllowRules(ipt, normalizedMac);
       console.log(`MAC address ${normalizedMac} blocked from captive portal`);
     } catch (error) {
       console.error('Error blocking MAC address:', error);
-      // Ignore errors if rule doesn't exist
+    }
+  }
+
+  private async removeAllowRules(ipt: string, normalizedMac: string): Promise<void> {
+    // 1. Remove DNAT bypass
+    while (true) {
+      try {
+        await execAsync(`${ipt} -t nat -D PREROUTING -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+      } catch {
+        break;
+      }
+    }
+
+    // 2. Remove Forwarding allow
+    while (true) {
+      try {
+        await execAsync(`${ipt} -D FORWARD -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+      } catch {
+        break;
+      }
     }
   }
 
