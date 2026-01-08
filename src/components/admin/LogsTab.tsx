@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, FileText, AlertCircle, Terminal } from 'lucide-react';
 
 const LogsTab: React.FC = () => {
@@ -7,8 +7,9 @@ const LogsTab: React.FC = () => {
   const [error, setError] = useState('');
   const [service, setService] = useState('dnsmasq');
   const [lines, setLines] = useState(50);
+  const [pingLogs, setPingLogs] = useState<Array<{ ts: string; mac: string; stage: string; message: string; success: boolean; responseTimeMs?: number }>>([]);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -17,18 +18,40 @@ const LogsTab: React.FC = () => {
       if (data.success) {
         setLogs(data.data || 'No logs found.');
       } else {
-        setError(data.error || 'Failed to fetch logs');
+        setError(typeof data.error === 'string' ? data.error : 'Failed to fetch logs');
       }
     } catch (err) {
-      setError('An error occurred while fetching logs');
+      setError(err instanceof Error ? err.message : 'An error occurred while fetching logs');
     } finally {
       setLoading(false);
     }
-  };
+  }, [service, lines]);
 
   useEffect(() => {
     fetchLogs();
-  }, [service, lines]);
+  }, [fetchLogs]);
+  useEffect(() => {
+    let active = true;
+    const loadPing = async () => {
+      try {
+        const res = await fetch('/api/portal/ping-logs');
+        const data = await res.json();
+        if (data.success && active) {
+          setPingLogs(Array.isArray(data.data) ? data.data.slice(0, 50) : []);
+        }
+      } catch (e) {
+        if (active) {
+          setError(e instanceof Error ? e.message : 'Failed to load ping logs');
+        }
+      }
+    };
+    loadPing();
+    const i = setInterval(loadPing, 5000);
+    return () => {
+      active = false;
+      clearInterval(i);
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -89,6 +112,57 @@ const LogsTab: React.FC = () => {
           <pre className="text-green-400 font-mono text-sm whitespace-pre-wrap">
             {logs || 'No logs available.'}
           </pre>
+        </div>
+      </div>
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-gray-800 flex items-center">
+            <FileText className="w-6 h-6 mr-2 text-blue-600" />
+            Ping Checker Events
+          </h2>
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch('/api/portal/ping-logs');
+                const data = await res.json();
+                if (data.success) {
+                  setPingLogs(Array.isArray(data.data) ? data.data.slice(0, 50) : []);
+                }
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Failed to refresh ping logs');
+              }
+            }}
+            className="flex items-center px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">MAC</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Stage</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Message</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Result</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time (ms)</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {pingLogs.map((l, idx) => (
+                <tr key={`${l.ts}-${idx}`}>
+                  <td className="px-4 py-2 text-sm text-gray-700">{new Date(l.ts).toLocaleTimeString()}</td>
+                  <td className="px-4 py-2 text-sm text-gray-700">{l.mac}</td>
+                  <td className="px-4 py-2 text-sm text-gray-700">{l.stage}</td>
+                  <td className="px-4 py-2 text-sm text-gray-700">{l.message}</td>
+                  <td className={`px-4 py-2 text-sm ${l.success ? 'text-green-600' : 'text-red-600'}`}>{l.success ? 'Success' : 'Fail'}</td>
+                  <td className="px-4 py-2 text-sm text-gray-700">{l.responseTimeMs ?? ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

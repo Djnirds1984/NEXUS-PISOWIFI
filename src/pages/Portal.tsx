@@ -55,6 +55,52 @@ const Portal: React.FC = () => {
   const [voucherSuccess, setVoucherSuccess] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [pausingSession, setPausingSession] = useState(false);
+  const startPingChecker = async (opts?: { timeoutMs?: number; retries?: number }) => {
+    try {
+      const macParam = encodeURIComponent(sessionInfo?.macAddress || deviceInfo?.mac || '');
+      if (!macParam) return;
+      setInternetStatus('checking');
+      if (eventSource) {
+        eventSource.close();
+        setEventSource(null);
+      }
+      const es = new EventSource(`/api/portal/ping-check/stream?mac=${macParam}`);
+      es.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data || '{}');
+          setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'ping-event', data }, ...prev].slice(0, 50));
+          if (data.stage === 'external') {
+            setError(data.message || '');
+          } else if (data.stage === 'dns' || data.stage === 'gateway' || data.stage === 'firewall' || data.stage === 'connection-reset' || data.stage === 'firewall-fix') {
+            setError(data.message || '');
+          } else if (data.stage === 'internal' || data.stage === 'auth' || data.stage === 'services-restart') {
+            setError(data.message || '');
+          } else if (data.stage === 'final') {
+            setInternetStatus(data.success ? 'online' : 'offline');
+            setError(data.message || '');
+            es.close();
+            setEventSource(null);
+          }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Failed to parse ping event');
+        }
+      };
+      es.onerror = () => {
+        es.close();
+        setEventSource(null);
+      };
+      setEventSource(es);
+      await fetch('/api/portal/ping-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ macAddress: sessionInfo?.macAddress || deviceInfo?.mac, timeoutMs: opts?.timeoutMs || 3000, retries: opts?.retries || 2 })
+      }).catch((e) => {
+        setError(e instanceof Error ? e.message : 'Failed to start ping check');
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ping checker setup failed');
+    }
+  };
 
   // Check internet status when active
   useEffect(() => {
@@ -107,11 +153,13 @@ const Portal: React.FC = () => {
               } else {
                 setError('Still connecting... Please try again in a few seconds.');
               }
-           } catch (e) {}
+          } catch (e) {
+            setError(e instanceof Error ? e.message : 'Retry check failed');
+          }
         }, 2000);
       }
     } catch (err) {
-      setError('Failed to verify connection.');
+      setError(err instanceof Error ? err.message : 'Failed to verify connection.');
     } finally {
       setVerifyingConnection(false);
     }
@@ -166,6 +214,7 @@ const Portal: React.FC = () => {
           if (data.success && data.data.needsFix) {
             console.warn(`⚠️  Firewall state inconsistency detected, fixing...`);
             await fetchSessionInfo(); // Refresh to get corrected state
+            startPingChecker({ timeoutMs: 3000, retries: 2 });
           }
         } catch (error) {
           console.warn('⚠️  Could not validate firewall state:', error);
@@ -581,10 +630,7 @@ const Portal: React.FC = () => {
                 });
              }
 
-             // Auto-redirect to internet after successful voucher redemption
-             setTimeout(() => {
-               handleGoToInternet();
-             }, 1500); // Wait 1.5 seconds to show success message
+             startPingChecker({ timeoutMs: 3000, retries: 2 });
         }
       } else {
         setError(data.error || 'Failed to redeem voucher');
@@ -692,19 +738,7 @@ const Portal: React.FC = () => {
         // Then refresh session info from server for accuracy
         await fetchSessionInfo();
         
-        // Verify connectivity after a brief delay
-        setTimeout(async () => {
-          try {
-            const macParam = encodeURIComponent(sessionInfo?.macAddress || deviceInfo?.mac || '');
-            const res = await fetch(`/api/portal/check-internet${macParam ? `?mac=${macParam}` : ''}`);
-            const data = await res.json();
-            setInternetStatus(data.connected ? 'online' : 'offline');
-            console.log(`✅ Connectivity verified: ${data.connected ? 'online' : 'offline'}`);
-          } catch (e) {
-            console.warn('⚠️  Could not verify connectivity after resume');
-            setInternetStatus('offline');
-          }
-        }, 1000);
+        startPingChecker({ timeoutMs: 3000, retries: 2 });
         
         console.log('✅ UI updated for resumed state');
         
@@ -904,6 +938,7 @@ const Portal: React.FC = () => {
                             type: 'recovery', 
                             data: { message: 'Manual recovery completed', details: data.data }
                           }, ...prev].slice(0, 50));
+                          startPingChecker({ timeoutMs: 3000, retries: 2 });
                         }
                       } catch (recoveryError) {
                         console.error('❌ Recovery failed:', recoveryError);
