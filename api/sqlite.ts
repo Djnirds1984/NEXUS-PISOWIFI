@@ -15,22 +15,12 @@ export function getDB(): Database.Database {
   const dbPath = path.join(dataDir, 'pisowifi.db');
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  
+  // Create tables if they don't exist
   db.exec(`
     CREATE TABLE IF NOT EXISTS kv (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS sessions (
-      macAddress TEXT,
-      startTime TEXT,
-      endTime TEXT,
-      pesos INTEGER,
-      minutes INTEGER,
-      active INTEGER,
-      ipAddress TEXT,
-      paused INTEGER DEFAULT 0,
-      pausedAt TEXT,
-      pausedDuration INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS devices (
       macAddress TEXT PRIMARY KEY,
@@ -53,6 +43,64 @@ export function getDB(): Database.Database {
       dateUsed TEXT
     );
   `);
+  
+  // Create sessions table with new schema
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      macAddress TEXT,
+      startTime TEXT,
+      endTime TEXT,
+      pesos INTEGER,
+      minutes INTEGER,
+      active INTEGER,
+      ipAddress TEXT,
+      paused INTEGER DEFAULT 0,
+      pausedAt TEXT,
+      pausedDuration INTEGER DEFAULT 0
+    );
+  `);
+  
+  // Check if we need to migrate the sessions table
+  try {
+    const tableInfo = db.prepare('PRAGMA table_info(sessions)').all();
+    const hasPausedColumn = tableInfo.some((column: any) => column.name === 'paused');
+    
+    if (!hasPausedColumn) {
+      console.log('🔧 Migrating sessions table to add pause functionality...');
+      
+      // Create a new table with the correct schema
+      db.exec(`
+        CREATE TABLE sessions_new (
+          macAddress TEXT,
+          startTime TEXT,
+          endTime TEXT,
+          pesos INTEGER,
+          minutes INTEGER,
+          active INTEGER,
+          ipAddress TEXT,
+          paused INTEGER DEFAULT 0,
+          pausedAt TEXT,
+          pausedDuration INTEGER DEFAULT 0
+        );
+      `);
+      
+      // Copy data from old table to new table
+      db.exec(`
+        INSERT INTO sessions_new (macAddress, startTime, endTime, pesos, minutes, active, ipAddress)
+        SELECT macAddress, startTime, endTime, pesos, minutes, active, ipAddress FROM sessions;
+      `);
+      
+      // Drop old table and rename new table
+      db.exec('DROP TABLE sessions;');
+      db.exec('ALTER TABLE sessions_new RENAME TO sessions;');
+      
+      console.log('✅ Sessions table migration completed successfully!');
+    }
+  } catch (error) {
+    console.error('❌ Error during sessions table migration:', error);
+    throw error;
+  }
+  
   return db;
 }
 
