@@ -175,7 +175,7 @@ export class SessionManager {
 
       // Allow internet access
       try {
-        await networkManager.allowMACAddress(normalizedMac);
+        await networkManager.allowMACAddress(normalizedMac, session.ipAddress);
       } catch (e) {
         console.error(`Failed to restore network access for ${normalizedMac}:`, e);
       }

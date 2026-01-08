@@ -22,6 +22,7 @@ import devicesRoutes from './routes/devices.js'
 import qosRoutes from './routes/qos.js'
 import voucherRoutes from './routes/vouchers.js'
 import { getSettings } from './database.js'
+import { sessionManager } from './sessionManager.js'
 
 // for esm mode
 const __filename = fileURLToPath(import.meta.url)
@@ -71,9 +72,12 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const settings = getSettings()
   const clientIp = getClientIp(req)
   const isCaptiveClient = sameSubnet(clientIp, settings.network.gateway)
+  const session = sessionManager.getSessionByIp(clientIp)
+  const isAllowed = !!(session && session.active)
   if (
     forceRedirect &&
     isCaptiveClient &&
+    !isAllowed &&
     req.method === 'GET' &&
     !req.path.startsWith('/api/') &&
     !req.path.startsWith('/portal') &&
