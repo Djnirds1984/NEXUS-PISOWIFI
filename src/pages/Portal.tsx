@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Wifi, Clock, DollarSign, Power, CheckCircle, AlertCircle, Loader2, Ticket, RefreshCw, Check, Pause, Play } from 'lucide-react';
 import { formatTimeRemaining, calculateTimeProgress } from '../utils/timeUtils';
+import { getPauseResumeButtonClasses } from '../utils/uiHelpers';
 
 interface PortalSettings {
   title: string;
@@ -125,15 +126,35 @@ const Portal: React.FC = () => {
     fetchPortalData();
   }, []);
 
-  // Auto-refresh session info every 30 seconds
+  // Auto-refresh session info every 30 seconds (or every 5 seconds when paused)
   useEffect(() => {
-    if (sessionInfo?.isActive) {
-      const interval = setInterval(fetchSessionInfo, 30000);
+    if (sessionInfo?.macAddress) {
+      // Use shorter interval (5 seconds) when paused to ensure UI stays synchronized
+      const refreshInterval = isPaused ? 5000 : 30000;
+      const interval = setInterval(fetchSessionInfo, refreshInterval);
+      console.log(`📡 Session refresh interval set to ${refreshInterval}ms (paused: ${isPaused})`);
       return () => clearInterval(interval);
     }
-  }, [sessionInfo?.isActive]);
+  }, [sessionInfo?.macAddress, isPaused]);
 
-  // Periodic firewall state validation every 10 seconds when session is active
+  // Monitor pause state changes and ensure UI consistency
+  useEffect(() => {
+    if (sessionInfo?.macAddress) {
+      console.log(`🔍 Pause state monitor: isPaused=${isPaused}, sessionInfo.isPaused=${sessionInfo.isPaused}, sessionActive=${sessionInfo.isActive}`);
+      
+      // Ensure pause state is synchronized
+      if (sessionInfo.isPaused !== undefined && sessionInfo.isPaused !== isPaused) {
+        console.log(`🔄 Synchronizing pause state: ${isPaused} → ${sessionInfo.isPaused}`);
+        setIsPaused(sessionInfo.isPaused);
+      }
+      
+      // Ensure button visibility is correct
+      const shouldShowButton = sessionInfo.macAddress && sessionInfo.isActive;
+      console.log(`📍 Button visibility check: shouldShow=${shouldShowButton}, hasMac=${!!sessionInfo.macAddress}, isActive=${sessionInfo.isActive}, isPaused=${isPaused}`);
+    }
+  }, [sessionInfo, isPaused]);
+
+  // Periodic firewall state validation every 10 seconds when session exists
   useEffect(() => {
     if (sessionInfo?.macAddress) {
       const validateFirewall = async () => {
@@ -264,8 +285,16 @@ const Portal: React.FC = () => {
           pausedDuration: data.session?.pausedDuration || 0
         };
         
+        // Log state changes for debugging
+        if (sessionInfo?.isPaused !== sessionData.isPaused) {
+          console.log(`🔄 Pause state changed: ${sessionInfo?.isPaused} → ${sessionData.isPaused}`);
+        }
+        
         setSessionInfo(sessionData);
         setIsPaused(data.isPaused || false);
+        
+        // Log button visibility state
+        console.log(`📍 Button visibility check - Session: ${!!sessionData.macAddress}, Paused: ${data.isPaused || false}`);
         
         // Update time display immediately
         setDisplayTimeRemaining(data.timeRemaining || 0);
@@ -711,6 +740,7 @@ const Portal: React.FC = () => {
     return 'Unknown';
   };
  
+ 
   useEffect(() => {
     const shouldPoll = !!(sessionInfo?.macAddress || deviceInfo?.mac);
     if (!shouldPoll) return;
@@ -823,18 +853,22 @@ const Portal: React.FC = () => {
                 <button
                   onClick={isPaused ? handleResumeSession : handlePauseSession}
                   disabled={pausingSession}
-                  className={`w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 ${
-                    isPaused
-                      ? 'bg-green-600 hover:bg-green-700 text-white'
-                      : 'bg-orange-600 hover:bg-orange-700 text-white'
-                  } ${pausingSession ? 'opacity-75 cursor-not-allowed' : ''}`}
+                  className={getPauseResumeButtonClasses(isPaused, pausingSession)}
+                  aria-label={isPaused ? 'Resume session' : 'Pause session'}
+                  style={{ minHeight: '48px', visibility: 'visible', display: 'flex' }}
                 >
                   {pausingSession ? (
-                    <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   ) : isPaused ? (
-                    'Resume Session'
+                    <>
+                      <Play className="w-5 h-5 mr-2" />
+                      Resume Session
+                    </>
                   ) : (
-                    'Pause Session'
+                    <>
+                      <Pause className="w-5 h-5 mr-2" />
+                      Pause Session
+                    </>
                   )}
                 </button>
                 <button
@@ -1202,12 +1236,9 @@ const Portal: React.FC = () => {
                     <button
                       onClick={isPaused ? handleResumeSession : handlePauseSession}
                       disabled={pausingSession}
-                      className={`w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center ${
-                        isPaused
-                          ? 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white'
-                          : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white'
-                      } ${pausingSession ? 'opacity-75 cursor-not-allowed' : ''}`}
+                      className={getPauseResumeButtonClasses(isPaused, pausingSession)}
                       aria-label={isPaused ? 'Resume session' : 'Pause session'}
+                      style={{ minHeight: '48px', visibility: 'visible', display: 'flex' }}
                     >
                       {pausingSession ? (
                         <>
