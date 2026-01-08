@@ -55,22 +55,18 @@ export class SessionManager {
       
       const now = new Date();
       
-      // Handle paused sessions
+      // Handle paused sessions - keep them paused and don't auto-resume
       if (userSession.paused && userSession.pausedAt) {
-        console.log(`Session for ${normalizedMac} is paused. Resuming to recalculate time.`);
-        // If session was paused when system went down, we need to resume it to recalculate time
+        console.log(`Session for ${normalizedMac} is paused. Keeping paused state.`);
+        // Don't auto-resume - just update the pause duration to account for server downtime
         const pauseDuration = Math.floor((now.getTime() - userSession.pausedAt.getTime()) / 1000);
         userSession.pausedDuration = (userSession.pausedDuration || 0) + pauseDuration;
-        userSession.endTime = new Date(userSession.endTime.getTime() + pauseDuration * 1000);
-        userSession.paused = false;
-        userSession.pausedAt = undefined;
+        userSession.pausedAt = now; // Reset pause time to now to prevent accumulating pause duration
         
-        // Update database to reflect the resumed state
+        // Update database to reflect the updated pause duration but keep paused state
         updateSession(normalizedMac, {
-          paused: false,
-          pausedAt: null,
           pausedDuration: userSession.pausedDuration,
-          endTime: userSession.endTime.toISOString()
+          pausedAt: now.toISOString()
         });
       }
       

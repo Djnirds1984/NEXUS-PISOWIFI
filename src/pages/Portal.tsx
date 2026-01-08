@@ -177,7 +177,10 @@ const Portal: React.FC = () => {
           totalPesos: data.session?.pesos || 0,
           totalMinutes: data.session?.minutes || undefined,
           serverTime: data.serverTime || undefined,
-          sessionEndTime: data.sessionEndTime ?? null
+          sessionEndTime: data.sessionEndTime ?? null,
+          isPaused: data.session?.paused || false,
+          pausedAt: data.session?.pausedAt || null,
+          pausedDuration: data.session?.pausedDuration || 0
         });
         setIsPaused(data.isPaused || false);
         if (typeof data.serverTime === 'number') {
@@ -223,8 +226,12 @@ const Portal: React.FC = () => {
           totalPesos: data.session?.pesos || 0,
           totalMinutes: data.session?.minutes || undefined,
           serverTime: data.serverTime || undefined,
-          sessionEndTime: data.sessionEndTime ?? null
+          sessionEndTime: data.sessionEndTime ?? null,
+          isPaused: data.session?.paused || false,
+          pausedAt: data.session?.pausedAt || null,
+          pausedDuration: data.session?.pausedDuration || 0
         });
+        setIsPaused(data.isPaused || false);
         if (typeof data.serverTime === 'number') {
           setSyncAnchor({
             serverMs: data.serverTime,
@@ -701,7 +708,7 @@ const Portal: React.FC = () => {
                   </div>
                 </div>
             )}
-            {sessionInfo?.isActive && (
+            {sessionInfo && sessionInfo.macAddress && (
               <div className="space-y-4">
                 {isPaused && (
                   <div className="p-3 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-lg flex items-center justify-center">
@@ -712,8 +719,10 @@ const Portal: React.FC = () => {
                 <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                      <span className={`text-sm font-semibold ${isDarkTheme ? 'text-white' : 'text-gray-900'}`}>Connected</span>
+                      <CheckCircle className={`w-5 h-5 ${isPaused ? 'text-yellow-600' : 'text-green-600'}`} />
+                      <span className={`text-sm font-semibold ${isDarkTheme ? 'text-white' : 'text-gray-900'}`}>
+                        {isPaused ? 'Paused' : 'Connected'}
+                      </span>
                     </div>
                     <span className="font-mono font-bold text-2xl">{formatTimeRemaining(displayTimeRemaining)}</span>
                   </div>
@@ -1044,8 +1053,8 @@ const Portal: React.FC = () => {
 
                 {/* Action Buttons */}
                 <div className="space-y-3">
-                  {/* Pause/Resume Button - Only show when session is active */}
-                  {sessionInfo?.isActive && (
+                  {/* Pause/Resume Button - Only show when session exists */}
+                  {sessionInfo && sessionInfo.macAddress && (
                     <button
                       onClick={isPaused ? handleResumeSession : handlePauseSession}
                       disabled={pausingSession}
