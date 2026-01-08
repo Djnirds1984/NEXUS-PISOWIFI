@@ -144,7 +144,7 @@ const HardwareTab: React.FC = () => {
 
   const simulateCoinPulse = async () => {
     try {
-      const response = await fetch('/api/hardware/coin/simulate', {
+      const response = await fetch('/api/hardware/simulate-coin', {
         method: 'POST',
       });
 
@@ -320,7 +320,24 @@ const HardwareTab: React.FC = () => {
         </div>
       </div>
 
-     
+      {/* Testing Tools */}
+      {hardwareStatus.mockMode && (
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <Settings className="h-5 w-5 mr-2 text-blue-600" />
+            Testing Tools
+          </h3>
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={simulateCoinPulse}
+              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              <Circle className="h-4 w-4" />
+              <span>Simulate Coin Drop (1 Peso)</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

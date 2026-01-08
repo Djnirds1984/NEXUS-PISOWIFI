@@ -156,6 +156,25 @@ router.post('/mock-mode', async (req, res) => {
   }
 });
 
+// Simulate coin pulse (for testing/mock mode)
+router.post('/simulate-coin', async (req, res) => {
+  try {
+    const { pin = 3 } = req.body;
+    hardwareManager.handleCoinPulse(pin);
+    
+    res.json({
+      success: true,
+      message: `Simulated coin pulse on pin ${pin}`
+    });
+  } catch (error) {
+    console.error('Error simulating coin pulse:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to simulate coin pulse'
+    });
+  }
+});
+
 // Start coin session
 router.post('/start-coin-session', async (req, res) => {
   try {

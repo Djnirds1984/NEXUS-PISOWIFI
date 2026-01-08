@@ -520,6 +520,10 @@ server=8.8.4.4
   }
  
   async enableCaptivePortal(): Promise<void> {
+    if (process.platform === 'win32') {
+      console.log('Windows detected: Captive portal enablement mocked');
+      return;
+    }
     try {
       const settings = getSettings();
       const gateway = settings.network.gateway;
@@ -599,6 +603,10 @@ server=8.8.4.4
   }
 
   async disableCaptivePortal(): Promise<void> {
+    if (process.platform === 'win32') {
+      console.log('Windows detected: Captive portal disablement mocked');
+      return;
+    }
     try {
       await this.clearCaptivePortalRules();
       console.log('Captive portal disabled');
@@ -609,6 +617,9 @@ server=8.8.4.4
   }
 
   async clearCaptivePortalRules(): Promise<void> {
+    if (process.platform === 'win32') {
+      return;
+    }
     try {
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
@@ -714,6 +725,9 @@ server=8.8.4.4
   }
 
   async getIptablesRules(): Promise<string[]> {
+    if (process.platform === 'win32') {
+      return ['Windows Mock Rule 1', 'Windows Mock Rule 2'];
+    }
     try {
       const ipt = await this.getIptablesCmd();
       if (!ipt) return [];

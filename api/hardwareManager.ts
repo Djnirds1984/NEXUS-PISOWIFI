@@ -223,7 +223,7 @@ export class HardwareManager {
     }
   }
 
-  private handleCoinPulse(pin: number): void {
+  public handleCoinPulse(pin: number): void {
     const now = new Date();
     this.status.lastCoinPulse = now;
     this.coinPulseCount++;
