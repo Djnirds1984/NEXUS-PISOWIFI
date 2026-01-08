@@ -5,9 +5,13 @@ import { getSettings, updateSettings } from '../database.js';
 import { sessionManager } from '../sessionManager.js';
 import { hardwareManager } from '../hardwareManager.js';
 import { networkManager } from '../networkManager.js';
+import { requireAdminAuth } from '../middleware/auth.js';
 
 const execAsync = promisify(exec);
 const router = express.Router();
+
+// Apply authentication middleware to all admin routes
+router.use(requireAdminAuth);
 
 // Get dashboard statistics
 router.get('/dashboard', async (req, res) => {

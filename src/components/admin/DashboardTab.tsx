@@ -43,7 +43,17 @@ const DashboardTab: React.FC = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const response = await fetch('/api/admin/dashboard');
+      const authHeader = localStorage.getItem('adminAuth');
+      const headers: HeadersInit = {};
+      
+      if (authHeader) {
+        headers['Authorization'] = authHeader;
+      }
+
+      const response = await fetch('/api/admin/dashboard', {
+        headers,
+      });
+      
       if (!response.ok) {
         throw new Error('Failed to fetch dashboard data');
       }

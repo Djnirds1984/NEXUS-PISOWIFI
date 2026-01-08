@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BarChart3, Wifi, Settings, DollarSign, HardDrive, Network, Database, Users, Activity, Ticket, FileText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BarChart3, Wifi, Settings, DollarSign, HardDrive, Network, Database, Users, Activity, Ticket, FileText, Shield } from 'lucide-react';
 import DashboardTab from '../components/admin/DashboardTab';
 import HardwareTab from '../components/admin/HardwareTab';
 import NetworkTab from '../components/admin/NetworkTab';
@@ -10,9 +10,66 @@ import DevicesTab from '../components/admin/DevicesTab';
 import BandwidthTab from '../components/admin/BandwidthTab';
 import VoucherTab from '../components/admin/VoucherTab';
 import LogsTab from '../components/admin/LogsTab';
+import SystemSettingsTab from '../components/admin/SystemSettingsTab';
+import AdminLogin from '../components/admin/AdminLogin';
 
 const AdminDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Check authentication status on component mount
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  const checkAuthStatus = async () => {
+    try {
+      const authHeader = localStorage.getItem('adminAuth');
+      const headers: HeadersInit = {};
+      
+      if (authHeader) {
+        headers['Authorization'] = authHeader;
+      }
+
+      const response = await fetch('/api/admin/dashboard', {
+        method: 'GET',
+        headers,
+      });
+      
+      if (response.status === 401) {
+        setIsAuthenticated(false);
+        localStorage.removeItem('adminAuth');
+      } else if (response.ok) {
+        setIsAuthenticated(true);
+      }
+    } catch (error) {
+      console.error('Auth check error:', error);
+      setIsAuthenticated(false);
+      localStorage.removeItem('adminAuth');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <AdminLogin onLogin={handleLogin} />;
+  }
 
   const tabs = [
     { id: 'dashboard', name: 'Dashboard', icon: BarChart3 },
@@ -25,6 +82,7 @@ const AdminDashboard: React.FC = () => {
     { id: 'vouchers', name: 'Vouchers', icon: Ticket },
     { id: 'logs', name: 'System Logs', icon: FileText },
     { id: 'database', name: 'Database', icon: Database },
+    { id: 'system', name: 'System Settings', icon: Shield },
   ];
 
   const renderTabContent = () => {
@@ -49,6 +107,8 @@ const AdminDashboard: React.FC = () => {
         return <VoucherTab />;
       case 'logs':
         return <LogsTab />;
+      case 'system':
+        return <SystemSettingsTab />;
       default:
         return <DashboardTab />;
     }

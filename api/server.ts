@@ -6,6 +6,7 @@ import { initializeDatabase } from './database.js';
 import { hardwareManager } from './hardwareManager.js';
 import { sessionManager } from './sessionManager.js';
 import { networkManager } from './networkManager.js';
+import { initializeAdminCredentials } from './middleware/auth.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -24,6 +25,9 @@ const PORT = process.env.PORT || 3001;
 async function initializePisoWiFi() {
   try {
     console.log('Initializing PisoWiFi system...');
+    
+    // Initialize admin credentials
+    initializeAdminCredentials();
     
     // Initialize database
     await initializeDatabase();
