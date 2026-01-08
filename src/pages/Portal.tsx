@@ -133,6 +133,29 @@ const Portal: React.FC = () => {
     }
   }, [sessionInfo?.isActive]);
 
+  // Periodic firewall state validation every 10 seconds when session is active
+  useEffect(() => {
+    if (sessionInfo?.macAddress) {
+      const validateFirewall = async () => {
+        try {
+          const macParam = encodeURIComponent(sessionInfo.macAddress);
+          const res = await fetch(`/api/portal/validate-firewall${macParam ? `?mac=${macParam}` : ''}`);
+          const data = await res.json();
+          
+          if (data.success && data.data.needsFix) {
+            console.warn(`⚠️  Firewall state inconsistency detected, fixing...`);
+            await fetchSessionInfo(); // Refresh to get corrected state
+          }
+        } catch (error) {
+          console.warn('⚠️  Could not validate firewall state:', error);
+        }
+      };
+      
+      const interval = setInterval(validateFirewall, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [sessionInfo?.macAddress]);
+
   // Time synchronization and countdown
   useEffect(() => {
     if (!syncAnchor) {
@@ -564,6 +587,8 @@ const Portal: React.FC = () => {
       setPausingSession(true);
       setError('');
       
+      console.log('🔄 Starting pause session...');
+      
       const response = await fetch('/api/portal/pause', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -574,14 +599,37 @@ const Portal: React.FC = () => {
       setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'pause-session', data: result }, ...prev].slice(0, 50));
 
       if (response.ok && result.success) {
-        // Immediately refresh session info to get updated time remaining
+        console.log('✅ Pause successful, updating UI...');
+        
+        // Immediately update UI state for better responsiveness
+        setIsPaused(true);
+        setInternetStatus('offline'); // Set to offline immediately
+        
+        // Then refresh session info from server for accuracy
         await fetchSessionInfo();
+        
+        console.log('✅ UI updated for paused state');
+        
+        // Show success feedback
+        setDebugEvents(prev => [{ 
+          ts: new Date().toISOString(), 
+          type: 'pause-success', 
+          data: { message: 'Session paused successfully - Internet blocked' }
+        }, ...prev].slice(0, 50));
+        
       } else {
+        console.error('❌ Pause failed:', result.error);
         setError(result.error || 'Failed to pause session');
+        
+        // Reset UI state on failure
+        setIsPaused(false);
       }
     } catch (error) {
+      console.error('❌ Pause session error:', error);
       setError('Failed to pause session');
-      console.error('Pause session error:', error);
+      
+      // Reset UI state on failure
+      setIsPaused(false);
     } finally {
       setPausingSession(false);
     }
@@ -594,6 +642,8 @@ const Portal: React.FC = () => {
       setPausingSession(true);
       setError('');
       
+      console.log('🔄 Starting resume session...');
+      
       const response = await fetch('/api/portal/resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -604,14 +654,51 @@ const Portal: React.FC = () => {
       setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'resume-session', data: result }, ...prev].slice(0, 50));
 
       if (response.ok && result.success) {
-        // Immediately refresh session info to get updated time remaining and server time
+        console.log('✅ Resume successful, updating UI...');
+        
+        // Immediately update UI state for better responsiveness
+        setIsPaused(false);
+        setInternetStatus('checking'); // Set to checking while we verify connectivity
+        
+        // Then refresh session info from server for accuracy
         await fetchSessionInfo();
+        
+        // Verify connectivity after a brief delay
+        setTimeout(async () => {
+          try {
+            const macParam = encodeURIComponent(sessionInfo?.macAddress || deviceInfo?.mac || '');
+            const res = await fetch(`/api/portal/check-internet${macParam ? `?mac=${macParam}` : ''}`);
+            const data = await res.json();
+            setInternetStatus(data.connected ? 'online' : 'offline');
+            console.log(`✅ Connectivity verified: ${data.connected ? 'online' : 'offline'}`);
+          } catch (e) {
+            console.warn('⚠️  Could not verify connectivity after resume');
+            setInternetStatus('offline');
+          }
+        }, 1000);
+        
+        console.log('✅ UI updated for resumed state');
+        
+        // Show success feedback
+        setDebugEvents(prev => [{ 
+          ts: new Date().toISOString(), 
+          type: 'resume-success', 
+          data: { message: 'Session resumed successfully - Internet restored' }
+        }, ...prev].slice(0, 50));
+        
       } else {
+        console.error('❌ Resume failed:', result.error);
         setError(result.error || 'Failed to resume session');
+        
+        // Reset UI state on failure
+        setIsPaused(true);
       }
     } catch (error) {
+      console.error('❌ Resume session error:', error);
       setError('Failed to resume session');
-      console.error('Resume session error:', error);
+      
+      // Reset UI state on failure
+      setIsPaused(true);
     } finally {
       setPausingSession(false);
     }
@@ -759,6 +846,43 @@ const Portal: React.FC = () => {
                 >
                   {verifyingConnection ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Go to Internet'}
                 </button>
+                
+                {/* Manual Recovery Button - Show when there are issues */}
+                {(error || internetStatus === 'offline') && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        console.log('🔄 Manual recovery initiated in simple mode...');
+                        setError('');
+                        
+                        // Force refresh session info
+                        await fetchSessionInfo();
+                        
+                        // Validate firewall state
+                        const macParam = encodeURIComponent(sessionInfo.macAddress);
+                        const res = await fetch(`/api/portal/validate-firewall${macParam ? `?mac=${macParam}` : ''}`);
+                        const data = await res.json();
+                        
+                        if (data.success) {
+                          console.log('✅ Recovery completed:', data.data.message);
+                          setDebugEvents(prev => [{ 
+                            ts: new Date().toISOString(), 
+                            type: 'recovery', 
+                            data: { message: 'Manual recovery completed', details: data.data }
+                          }, ...prev].slice(0, 50));
+                        }
+                      } catch (recoveryError) {
+                        console.error('❌ Recovery failed:', recoveryError);
+                        setError('Recovery failed. Please try again or contact support.');
+                      }
+                    }}
+                    className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"
+                  >
+                    <RefreshCw className="w-5 h-5 mr-2" />
+                    Fix Connection Issues
+                  </button>
+                )}
+                
                 <button
                   onClick={handleDisconnect}
                   className={`w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 ${
@@ -979,7 +1103,21 @@ const Portal: React.FC = () => {
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Server Connected: {renderBool(debugInfo?.serverConnected, internetStatus === 'online' ? true : internetStatus === 'offline' ? false : undefined)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Client Allowed: {renderBool(debugInfo?.clientAllowed, internetStatus === 'online' ? true : undefined)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>iptables Rules: {(debugInfo?.iptablesRuleCount as number) ?? 'N/A'}</div>
+                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Firewall Status: {(debugInfo?.firewallStatus?.isAllowed ? 'Allowed' : debugInfo?.firewallStatus?.hasBlockRules ? 'Blocked' : 'Unknown')}</div>
                   </div>
+                  
+                  {/* Firewall Status Details */}
+                  {debugInfo?.firewallStatus && (
+                    <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+                      <div className={`font-semibold ${isDarkTheme ? 'text-gray-200' : 'text-gray-800'}`}>Firewall Details:</div>
+                      <div className="grid grid-cols-2 gap-1 mt-1">
+                        <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Allowed: {String(debugInfo.firewallStatus.isAllowed)}</div>
+                        <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Block Rules: {debugInfo.firewallStatus.blockRuleCount}</div>
+                        <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Allow Rules: {debugInfo.firewallStatus.allowRuleCount}</div>
+                        <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Last Check: {new Date(debugInfo.firewallStatus.lastUpdate).toLocaleTimeString()}</div>
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-3">
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'} text-xs mb-1`}>Events</div>
                     <div className="max-h-40 overflow-y-auto border rounded-md p-2 text-xs">
@@ -1089,6 +1227,42 @@ const Portal: React.FC = () => {
                       )}
                     </button>
                   )}
+                  
+                  {/* Manual Recovery Button - Show when there are issues */}
+                  {sessionInfo && sessionInfo.macAddress && (error || internetStatus === 'offline') && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          console.log('🔄 Manual recovery initiated...');
+                          setError('');
+                          
+                          // Force refresh session info
+                          await fetchSessionInfo();
+                          
+                          // Validate firewall state
+                          const macParam = encodeURIComponent(sessionInfo.macAddress);
+                          const res = await fetch(`/api/portal/validate-firewall${macParam ? `?mac=${macParam}` : ''}`);
+                          const data = await res.json();
+                          
+                          if (data.success) {
+                            console.log('✅ Recovery completed:', data.data.message);
+                            setDebugEvents(prev => [{ 
+                              ts: new Date().toISOString(), 
+                              type: 'recovery', 
+                              data: { message: 'Manual recovery completed', details: data.data }
+                            }, ...prev].slice(0, 50));
+                          }
+                        } catch (recoveryError) {
+                          console.error('❌ Recovery failed:', recoveryError);
+                          setError('Recovery failed. Please try again or contact support.');
+                        }
+                      }}
+                      className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center"
+                    >
+                      <RefreshCw className="w-5 h-5 mr-2" />
+                      Fix Connection Issues
+                    </button>
+                  )}
 
                   <button
                     onClick={handleGoToInternet}
@@ -1150,7 +1324,21 @@ const Portal: React.FC = () => {
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Server Connected: {String(debugInfo?.serverConnected)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Client Allowed: {String(debugInfo?.clientAllowed)}</div>
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>iptables Rules: {(debugInfo?.iptablesRuleCount as number) ?? 'N/A'}</div>
+                    <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Firewall Status: {(debugInfo?.firewallStatus?.isAllowed ? 'Allowed' : debugInfo?.firewallStatus?.hasBlockRules ? 'Blocked' : 'Unknown')}</div>
                   </div>
+                  
+                  {/* Firewall Status Details */}
+                  {debugInfo?.firewallStatus && (
+                    <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+                      <div className={`font-semibold ${isDarkTheme ? 'text-gray-200' : 'text-gray-800'}`}>Firewall Details:</div>
+                      <div className="grid grid-cols-2 gap-1 mt-1">
+                        <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Allowed: {String(debugInfo.firewallStatus.isAllowed)}</div>
+                        <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Block Rules: {debugInfo.firewallStatus.blockRuleCount}</div>
+                        <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Allow Rules: {debugInfo.firewallStatus.allowRuleCount}</div>
+                        <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Last Check: {new Date(debugInfo.firewallStatus.lastUpdate).toLocaleTimeString()}</div>
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-3">
                     <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'} text-xs mb-1`}>Events</div>
                     <div className="max-h-40 overflow-y-auto border rounded-md p-2 text-xs">

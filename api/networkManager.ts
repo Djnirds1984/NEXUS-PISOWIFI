@@ -136,6 +136,67 @@ export class NetworkManager {
     return this.allowedMacs.has(normalizedMac);
   }
 
+  async getFirewallStatus(macAddress: string): Promise<{
+    isAllowed: boolean;
+    hasBlockRules: boolean;
+    hasAllowRules: boolean;
+    blockRuleCount: number;
+    allowRuleCount: number;
+    lastUpdate: Date;
+  }> {
+    const normalizedMac = this.normalizeMac(macAddress);
+    const isAllowed = this.allowedMacs.has(normalizedMac);
+    
+    try {
+      const ipt = await this.getIptablesCmd();
+      if (!ipt) {
+        return {
+          isAllowed,
+          hasBlockRules: false,
+          hasAllowRules: false,
+          blockRuleCount: 0,
+          allowRuleCount: 0,
+          lastUpdate: new Date()
+        };
+      }
+      
+      const { stdout } = await execAsync(`${ipt} -L FORWARD -n`);
+      const lines = stdout.split('\n');
+      
+      let blockRuleCount = 0;
+      let allowRuleCount = 0;
+      
+      for (const line of lines) {
+        if (line.includes(normalizedMac)) {
+          if (line.includes('DROP')) {
+            blockRuleCount++;
+          } else if (line.includes('ACCEPT')) {
+            allowRuleCount++;
+          }
+        }
+      }
+      
+      return {
+        isAllowed,
+        hasBlockRules: blockRuleCount > 0,
+        hasAllowRules: allowRuleCount > 0,
+        blockRuleCount,
+        allowRuleCount,
+        lastUpdate: new Date()
+      };
+    } catch (error) {
+      console.error(`❌ Error getting firewall status for ${normalizedMac}:`, error);
+      return {
+        isAllowed,
+        hasBlockRules: false,
+        hasAllowRules: false,
+        blockRuleCount: 0,
+        allowRuleCount: 0,
+        lastUpdate: new Date()
+      };
+    }
+  }
+
   async checkInternetConnection(): Promise<boolean> {
     // If on Windows, we are in mock mode.
     // However, for the purpose of "Simulating a Firewall", 
@@ -687,10 +748,108 @@ server=8.8.4.4
     try {
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
+      
+      console.log(`🔓 Starting comprehensive firewall restoration for MAC: ${normalizedMac}`);
+      
+      // Step 1: Remove any existing blocking rules for this MAC
+      await this.removeBlockRules(ipt, normalizedMac);
+      
+      // Step 2: Apply comprehensive allow rules
       await this.applyAllowRules(ipt, normalizedMac, ipAddress);
+      
+      console.log(`✅ MAC address ${normalizedMac} internet access fully restored`);
+      
+      // Verify the restoration was successful
+      const verifyResult = await this.verifyMacAllowing(normalizedMac);
+      if (verifyResult.success) {
+        console.log(`🔍 Verified: MAC ${normalizedMac} is properly allowed (${verifyResult.ruleCount} allow rules active)`);
+      } else {
+        console.warn(`⚠️  Warning: Could not verify allowing for MAC ${normalizedMac}`);
+      }
+      
     } catch (error) {
-      console.error('Error allowing MAC address:', error);
-      throw error;
+      console.error('❌ Error allowing MAC address:', error);
+      throw new Error(`Failed to allow MAC address: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async removeBlockRules(ipt: string, normalizedMac: string): Promise<void> {
+    console.log(`🧹 Removing existing block rules for MAC: ${normalizedMac}`);
+    
+    try {
+      // List current rules and remove any that match our MAC in blocking context
+      const { stdout: forwardRules } = await execAsync(`${ipt} -L FORWARD --line-numbers -n`).catch(() => ({ stdout: '' }));
+      
+      // Process rules in reverse order to maintain line number accuracy
+      const lines = forwardRules.split('\n').reverse();
+      for (const line of lines) {
+        if (line.includes(normalizedMac) && line.includes('DROP')) {
+          const match = line.match(/^\s*(\d+)/);
+          if (match) {
+            const lineNum = match[1];
+            try {
+              await execAsync(`${ipt} -D FORWARD ${lineNum}`);
+              console.log(`🗑️  Removed blocking rule at line ${lineNum}`);
+            } catch (e) {
+              console.warn(`⚠️  Could not remove rule at line ${lineNum}:`, e);
+            }
+          }
+        }
+      }
+      
+      console.log(`✅ Block rules cleanup completed for MAC: ${normalizedMac}`);
+    } catch (error) {
+      console.error(`❌ Error removing block rules for MAC ${normalizedMac}:`, error);
+    }
+  }
+
+  private async verifyMacBlocking(macAddress: string): Promise<{success: boolean, ruleCount: number}> {
+    try {
+      const ipt = await this.getIptablesCmd();
+      if (!ipt) return { success: false, ruleCount: 0 };
+      
+      const { stdout } = await execAsync(`${ipt} -L FORWARD -n`);
+      const lines = stdout.split('\n');
+      
+      let blockingRules = 0;
+      for (const line of lines) {
+        if (line.includes(macAddress) && line.includes('DROP')) {
+          blockingRules++;
+        }
+      }
+      
+      return { 
+        success: blockingRules > 0, 
+        ruleCount: blockingRules 
+      };
+    } catch (error) {
+      console.error(`❌ Error verifying MAC blocking for ${macAddress}:`, error);
+      return { success: false, ruleCount: 0 };
+    }
+  }
+
+  private async verifyMacAllowing(macAddress: string): Promise<{success: boolean, ruleCount: number}> {
+    try {
+      const ipt = await this.getIptablesCmd();
+      if (!ipt) return { success: false, ruleCount: 0 };
+      
+      const { stdout } = await execAsync(`${ipt} -L FORWARD -n`);
+      const lines = stdout.split('\n');
+      
+      let allowRules = 0;
+      for (const line of lines) {
+        if (line.includes(macAddress) && line.includes('ACCEPT')) {
+          allowRules++;
+        }
+      }
+      
+      return { 
+        success: allowRules > 0, 
+        ruleCount: allowRules 
+      };
+    } catch (error) {
+      console.error(`❌ Error verifying MAC allowing for ${macAddress}:`, error);
+      return { success: false, ruleCount: 0 };
     }
   }
 
@@ -734,10 +893,44 @@ server=8.8.4.4
     try {
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
+      
+      console.log(`🔒 Starting comprehensive firewall blocking for MAC: ${normalizedMac}`);
+      
+      // Step 1: Remove any existing allow rules first
       await this.removeAllowRules(ipt, normalizedMac);
-      console.log(`MAC address ${normalizedMac} blocked from captive portal`);
+      
+      // Step 2: Add explicit DROP rules for this MAC at the top of chains
+      const settings = getSettings();
+      const lan = settings.network.lanInterface;
+      const wan = settings.network.wanInterface;
+      
+      // Block all traffic from this MAC address
+      await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -j DROP`).catch(() => {});
+      
+      // Block DNS queries from this MAC
+      await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -p udp --dport 53 -j DROP`).catch(() => {});
+      await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -p tcp --dport 53 -j DROP`).catch(() => {});
+      
+      // Block HTTP/HTTPS traffic from this MAC
+      await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -p tcp --dport 80 -j DROP`).catch(() => {});
+      await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -p tcp --dport 443 -j DROP`).catch(() => {});
+      
+      // Block all traffic TO this MAC address as well (bidirectional)
+      await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-destination ${normalizedMac} -j DROP`).catch(() => {});
+      
+      console.log(`✅ MAC address ${normalizedMac} completely blocked from all internet access`);
+      
+      // Verify the blocking was successful
+      const verifyResult = await this.verifyMacBlocking(normalizedMac);
+      if (verifyResult.success) {
+        console.log(`🔍 Verified: MAC ${normalizedMac} is properly blocked (${verifyResult.ruleCount} blocking rules active)`);
+      } else {
+        console.warn(`⚠️  Warning: Could not verify blocking for MAC ${normalizedMac}`);
+      }
+      
     } catch (error) {
-      console.error('Error blocking MAC address:', error);
+      console.error('❌ Error blocking MAC address:', error);
+      throw new Error(`Failed to block MAC address: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

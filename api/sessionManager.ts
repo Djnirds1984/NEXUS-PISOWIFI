@@ -353,6 +353,43 @@ export class SessionManager {
     return Array.from(this.activeSessions.values());
   }
 
+  async validateAndFixFirewallState(macAddress: string): Promise<void> {
+    const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
+    const session = this.activeSessions.get(normalizedMac);
+    
+    if (!session) {
+      console.warn(`⚠️  No session found for MAC ${normalizedMac}, skipping firewall validation`);
+      return;
+    }
+    
+    try {
+      const firewallStatus = await networkManager.getFirewallStatus(normalizedMac);
+      const isAllowed = networkManager.isMacAllowed(normalizedMac);
+      
+      console.log(`🔍 Validating firewall state for MAC ${normalizedMac}:`, {
+        sessionPaused: session.paused,
+        firewallAllowed: isAllowed,
+        firewallStatus
+      });
+      
+      // Check for inconsistencies
+      if (session.paused && isAllowed) {
+        console.error(`❌ CRITICAL: Session is paused but MAC is still allowed in firewall! Fixing...`);
+        await networkManager.blockMACAddress(normalizedMac);
+        console.log(`✅ Fixed: MAC ${normalizedMac} is now properly blocked`);
+      } else if (!session.paused && !isAllowed) {
+        console.error(`❌ CRITICAL: Session is active but MAC is blocked in firewall! Fixing...`);
+        await networkManager.allowMACAddress(normalizedMac, session.ipAddress);
+        console.log(`✅ Fixed: MAC ${normalizedMac} is now properly allowed`);
+      } else {
+        console.log(`✅ Firewall state is consistent for MAC ${normalizedMac}`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ Error validating firewall state for MAC ${normalizedMac}:`, error);
+    }
+  }
+
   getSessionTimeRemaining(macAddress: string): number {
     const session = this.activeSessions.get(macAddress.replace(/-/g, ':').toLowerCase());
     if (!session || !session.active) {
@@ -492,79 +529,128 @@ export class SessionManager {
     const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
     const session = this.activeSessions.get(normalizedMac);
     
+    console.log(`🔄 Starting pause session process for MAC: ${normalizedMac}`);
+    
     if (!session || !session.active) {
+      console.error(`❌ Cannot pause session: Session not found or inactive for MAC: ${normalizedMac}`);
       throw new Error('Session not found or inactive');
     }
 
     if (session.paused) {
+      console.warn(`⚠️  Session already paused for MAC: ${normalizedMac}`);
       throw new Error('Session is already paused');
     }
 
-    // Update session state
-    session.paused = true;
-    session.pausedAt = new Date();
-    session.pausedDuration = session.pausedDuration || 0;
+    try {
+      // Update session state
+      session.paused = true;
+      session.pausedAt = new Date();
+      session.pausedDuration = session.pausedDuration || 0;
 
-    // Update database
-    updateSession(normalizedMac, {
-      paused: true,
-      pausedAt: session.pausedAt.toISOString(),
-      pausedDuration: session.pausedDuration
-    });
+      // Update database
+      updateSession(normalizedMac, {
+        paused: true,
+        pausedAt: session.pausedAt.toISOString(),
+        pausedDuration: session.pausedDuration
+      });
 
-    // Cancel the existing timer since we're pausing
-    const timer = this.sessionTimers.get(normalizedMac);
-    if (timer) {
-      clearTimeout(timer);
-      this.sessionTimers.delete(normalizedMac);
+      // Cancel the existing timer since we're pausing
+      const timer = this.sessionTimers.get(normalizedMac);
+      if (timer) {
+        clearTimeout(timer);
+        this.sessionTimers.delete(normalizedMac);
+        console.log(`⏰ Cancelled session timer for MAC: ${normalizedMac}`);
+      }
+
+      console.log(`🔒 Blocking internet access for MAC: ${normalizedMac}`);
+      
+      // Block internet access with comprehensive firewall rules
+      await networkManager.blockMACAddress(normalizedMac);
+      
+      // Verify the blocking was successful
+      const isAllowed = networkManager.isMacAllowed(normalizedMac);
+      if (isAllowed) {
+        console.error(`❌ CRITICAL: MAC ${normalizedMac} is still allowed after blocking!`);
+        throw new Error('Failed to properly block MAC address - still showing as allowed');
+      }
+      
+      console.log(`✅ Session successfully paused for MAC: ${normalizedMac} at ${session.pausedAt.toISOString()}`);
+      
+    } catch (error) {
+      console.error(`❌ Error pausing session for MAC ${normalizedMac}:`, error);
+      
+      // Rollback on failure
+      session.paused = false;
+      session.pausedAt = undefined;
+      
+      throw new Error(`Failed to pause session: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    // Block internet access
-    await networkManager.blockMACAddress(normalizedMac);
-
-    console.log(`Session paused for ${normalizedMac} at ${session.pausedAt.toISOString()}`);
   }
 
   async resumeSession(macAddress: string): Promise<void> {
     const normalizedMac = macAddress.replace(/-/g, ':').toLowerCase();
     const session = this.activeSessions.get(normalizedMac);
     
+    console.log(`🔄 Starting resume session process for MAC: ${normalizedMac}`);
+    
     if (!session || !session.active) {
+      console.error(`❌ Cannot resume session: Session not found or inactive for MAC: ${normalizedMac}`);
       throw new Error('Session not found or inactive');
     }
 
     if (!session.paused || !session.pausedAt) {
+      console.warn(`⚠️  Session not paused for MAC: ${normalizedMac}`);
       throw new Error('Session is not paused');
     }
 
-    // Calculate paused duration
-    const now = new Date();
-    const pauseDuration = Math.floor((now.getTime() - session.pausedAt.getTime()) / 1000); // in seconds
-    session.pausedDuration = (session.pausedDuration || 0) + pauseDuration;
+    try {
+      // Calculate paused duration
+      const now = new Date();
+      const pauseDuration = Math.floor((now.getTime() - session.pausedAt.getTime()) / 1000); // in seconds
+      session.pausedDuration = (session.pausedDuration || 0) + pauseDuration;
 
-    // Extend session end time by the pause duration
-    const additionalMs = pauseDuration * 1000;
-    session.endTime = new Date(session.endTime.getTime() + additionalMs);
+      // Extend session end time by the pause duration
+      const additionalMs = pauseDuration * 1000;
+      session.endTime = new Date(session.endTime.getTime() + additionalMs);
 
-    // Reset pause state
-    session.paused = false;
-    session.pausedAt = undefined;
+      // Reset pause state
+      session.paused = false;
+      session.pausedAt = undefined;
 
-    // Update database
-    updateSession(normalizedMac, {
-      paused: false,
-      pausedAt: null,
-      pausedDuration: session.pausedDuration,
-      endTime: session.endTime.toISOString()
-    });
+      // Update database
+      updateSession(normalizedMac, {
+        paused: false,
+        pausedAt: null,
+        pausedDuration: session.pausedDuration,
+        endTime: session.endTime.toISOString()
+      });
 
-    // Restore internet access
-    await networkManager.allowMACAddress(normalizedMac, session.ipAddress);
+      console.log(`🔓 Restoring internet access for MAC: ${normalizedMac}`);
+      
+      // Restore internet access with comprehensive firewall rules
+      await networkManager.allowMACAddress(normalizedMac, session.ipAddress);
+      
+      // Verify the restoration was successful
+      const isAllowed = networkManager.isMacAllowed(normalizedMac);
+      if (!isAllowed) {
+        console.error(`❌ CRITICAL: MAC ${normalizedMac} is not allowed after restoration!`);
+        throw new Error('Failed to properly restore MAC address - still showing as blocked');
+      }
+      
+      // Reschedule session expiration
+      this.scheduleSessionExpiration(normalizedMac, session.endTime);
 
-    // Reschedule session expiration
-    this.scheduleSessionExpiration(normalizedMac, session.endTime);
-
-    console.log(`Session resumed for ${normalizedMac}. Extended by ${pauseDuration} seconds. New end time: ${session.endTime.toISOString()}`);
+      console.log(`✅ Session successfully resumed for MAC: ${normalizedMac}. Extended by ${pauseDuration} seconds. New end time: ${session.endTime.toISOString()}`);
+      
+    } catch (error) {
+      console.error(`❌ Error resuming session for MAC ${normalizedMac}:`, error);
+      
+      // Rollback on failure - restore pause state
+      session.paused = true;
+      session.pausedAt = new Date();
+      
+      throw new Error(`Failed to resume session: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   cleanup(): void {

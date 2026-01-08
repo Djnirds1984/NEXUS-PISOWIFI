@@ -518,6 +518,17 @@ router.get('/debug', async (req, res) => {
     const devices = await networkManager.listActiveDevices().catch(() => []);
     const devMatch = devices.find(d => d.macAddress.toLowerCase() === (macAddress || '').toLowerCase() || d.ipAddress === ip);
     const rules = await networkManager.getIptablesRules().catch(() => []);
+    
+    // Get detailed firewall status if we have a MAC address
+    let firewallStatus = null;
+    if (macAddress) {
+      try {
+        firewallStatus = await networkManager.getFirewallStatus(macAddress);
+      } catch (e) {
+        console.warn('Could not get firewall status:', e);
+      }
+    }
+    
     res.json({
       success: true,
       data: {
@@ -528,13 +539,78 @@ router.get('/debug', async (req, res) => {
         serverConnected,
         clientAllowed,
         deviceEntry: devMatch || null,
-        iptablesRuleCount: Array.isArray(rules) ? rules.length : 0
+        iptablesRuleCount: Array.isArray(rules) ? rules.length : 0,
+        firewallStatus,
+        sessionDetails: session ? {
+          isPaused: session.paused || false,
+          pausedAt: session.pausedAt,
+          pausedDuration: session.pausedDuration || 0,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          pesos: session.pesos,
+          minutes: session.minutes
+        } : null
       }
     });
   } catch (e) {
     res.status(500).json({
       success: false,
       error: 'Failed to get debug info'
+    });
+  }
+});
+
+// Validate firewall state
+router.get('/validate-firewall', async (req, res) => {
+  try {
+    let macAddress = (req.query.mac as string) || '';
+    const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
+    
+    if (!macAddress) {
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
+    
+    if (!macAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'MAC address is required'
+      });
+    }
+    
+    const session = sessionManager.getSession(macAddress);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        error: 'Session not found'
+      });
+    }
+    
+    // Validate and fix firewall state
+    await sessionManager.validateAndFixFirewallState(macAddress);
+    
+    // Get updated firewall status
+    const firewallStatus = await networkManager.getFirewallStatus(macAddress);
+    const isAllowed = networkManager.isMacAllowed(macAddress);
+    
+    // Check if a fix was needed
+    const needsFix = (session.paused && isAllowed) || (!session.paused && !isAllowed);
+    
+    res.json({
+      success: true,
+      data: {
+        sessionPaused: session.paused,
+        firewallAllowed: isAllowed,
+        firewallStatus,
+        needsFix,
+        message: needsFix ? 'Firewall state was inconsistent and has been fixed' : 'Firewall state is consistent'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error validating firewall state:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to validate firewall state'
     });
   }
 });
