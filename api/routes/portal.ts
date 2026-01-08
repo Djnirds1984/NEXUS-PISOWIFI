@@ -77,7 +77,7 @@ router.get('/settings', async (req, res) => {
 router.get('/status', async (req, res) => {
   try {
     let macAddress = (req.query.mac as string) || '';
-    let ip = (req.ip || '').replace('::ffff:', '');
+    let ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
     const serverTime = Date.now();
     
     // Attempt resolution if MAC is missing
@@ -161,7 +161,7 @@ router.get('/status', async (req, res) => {
 router.post('/connect', async (req, res) => {
   try {
     let { macAddress, pesos } = req.body;
-    const ip = (req.ip || '').replace('::ffff:', '');
+    const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
 
     if (!macAddress) {
       macAddress = (await resolveMACByIP(ip)) || '';
@@ -253,7 +253,7 @@ router.post('/extend', async (req, res) => {
     let { macAddress, pesos } = req.body;
 
     if (!macAddress) {
-      const ip = (req.ip || '').replace('::ffff:', '');
+      const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
       macAddress = (await resolveMACByIP(ip)) || '';
     }
 
@@ -347,7 +347,7 @@ router.post('/disconnect', async (req, res) => {
     let { macAddress } = req.body;
 
     if (!macAddress) {
-      const ip = (req.ip || '').replace('::ffff:', '');
+      const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
       macAddress = (await resolveMACByIP(ip)) || '';
     }
 
@@ -396,7 +396,7 @@ router.post('/disconnect', async (req, res) => {
 router.post('/redeem-voucher', async (req, res) => {
   try {
     let { macAddress, code } = req.body;
-    const ip = (req.ip || '').replace('::ffff:', '');
+    const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
 
     if (!macAddress) {
       macAddress = (await resolveMACByIP(ip)) || '';
@@ -450,7 +450,7 @@ router.post('/redeem-voucher', async (req, res) => {
 router.get('/check-internet', async (req, res) => {
   try {
     let macAddress = (req.query.mac as string) || '';
-    const ip = (req.ip || '').replace('::ffff:', '');
+    const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
 
     if (!macAddress) {
       macAddress = (await resolveMACByIP(ip)) || '';
@@ -475,7 +475,7 @@ router.get('/check-internet', async (req, res) => {
       const session = sessionManager.getSession(macAddress);
       if (session && session.active && !clientIsAllowed) {
         console.log(`[Self-Healing] Restoring missing firewall rule for ${macAddress}`);
-        await networkManager.allowMACAddress(macAddress);
+        await networkManager.allowMACAddress(macAddress, session.ipAddress);
         clientIsAllowed = true;
       }
     }
@@ -491,6 +491,46 @@ router.get('/check-internet', async (req, res) => {
       success: false,
       connected: false,
       error: 'Failed to check internet connection'
+    });
+  }
+});
+
+router.get('/debug', async (req, res) => {
+  try {
+    let macAddress = (req.query.mac as string) || '';
+    const ip = String((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || (req.ip || '')).replace('::ffff:', '');
+    if (!macAddress) {
+      macAddress = (await resolveMACByIP(ip)) || '';
+    }
+    let session = macAddress ? sessionManager.getSession(macAddress) : undefined;
+    if (!session && ip) {
+      session = sessionManager.getSessionByIp(ip);
+      if (session) {
+        macAddress = session.macAddress;
+      }
+    }
+    const serverConnected = await networkManager.checkInternetConnection();
+    const clientAllowed = macAddress ? networkManager.isMacAllowed(macAddress) : false;
+    const devices = await networkManager.listActiveDevices().catch(() => []);
+    const devMatch = devices.find(d => d.macAddress.toLowerCase() === (macAddress || '').toLowerCase() || d.ipAddress === ip);
+    const rules = await networkManager.getIptablesRules().catch(() => []);
+    res.json({
+      success: true,
+      data: {
+        ip,
+        macAddress,
+        sessionActive: !!(session && session.active),
+        timeRemaining: session ? sessionManager.getSessionTimeRemaining(session.macAddress) : 0,
+        serverConnected,
+        clientAllowed,
+        deviceEntry: devMatch || null,
+        iptablesRuleCount: Array.isArray(rules) ? rules.length : 0
+      }
+    });
+  } catch (e) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get debug info'
     });
   }
 });

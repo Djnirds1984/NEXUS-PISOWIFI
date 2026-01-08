@@ -46,6 +46,9 @@ const Portal: React.FC = () => {
   const [mode, setMode] = useState<'connect' | 'extend'>('connect');
   const [displayTimeRemaining, setDisplayTimeRemaining] = useState<number>(0);
   const [syncAnchor, setSyncAnchor] = useState<{ serverMs: number; clientMs: number; remainingSec: number } | null>(null);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<any | null>(null);
+  const [debugEvents, setDebugEvents] = useState<Array<{ ts: string; type: string; data: any }>>([]);
 
   // Check internet status when active
   useEffect(() => {
@@ -54,13 +57,15 @@ const Portal: React.FC = () => {
       const check = async () => {
         try {
           // Check server connectivity first
-          const res = await fetch('/api/portal/check-internet');
+          const macParam = encodeURIComponent(sessionInfo?.macAddress || deviceInfo?.mac || '');
+          const res = await fetch(`/api/portal/check-internet${macParam ? `?mac=${macParam}` : ''}`);
           const data = await res.json();
           if (data.connected) {
              setInternetStatus('online');
           } else {
              setInternetStatus('offline');
           }
+          setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'check-internet', data }, ...prev].slice(0, 50));
         } catch {
           setInternetStatus('offline');
         }
@@ -75,8 +80,10 @@ const Portal: React.FC = () => {
     setVerifyingConnection(true);
     try {
       // Force a check immediately
-      const res = await fetch('/api/portal/check-internet');
+      const macParam = encodeURIComponent(sessionInfo?.macAddress || deviceInfo?.mac || '');
+      const res = await fetch(`/api/portal/check-internet${macParam ? `?mac=${macParam}` : ''}`);
       const data = await res.json();
+      setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'go-to-internet', data }, ...prev].slice(0, 50));
       
       if (data.connected) {
         window.location.href = 'http://google.com';
@@ -85,13 +92,14 @@ const Portal: React.FC = () => {
         // Try again in 2 seconds
         setTimeout(async () => {
            try {
-             const res2 = await fetch('/api/portal/check-internet');
-             const data2 = await res2.json();
-             if (data2.connected) {
-               window.location.href = 'http://google.com';
-             } else {
-               setError('Still connecting... Please try again in a few seconds.');
-             }
+             const res2 = await fetch(`/api/portal/check-internet${macParam ? `?mac=${macParam}` : ''}`);
+              const data2 = await res2.json();
+              setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'retry-internet', data: data2 }, ...prev].slice(0, 50));
+              if (data2.connected) {
+                window.location.href = 'http://google.com';
+              } else {
+                setError('Still connecting... Please try again in a few seconds.');
+              }
            } catch (e) {}
         }, 2000);
       }
@@ -275,6 +283,7 @@ const Portal: React.FC = () => {
       });
 
       const result = await response.json();
+      setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'connect', data: result }, ...prev].slice(0, 50));
 
       if (response.ok && result.success) {
         // Wait a moment then refresh session info
@@ -334,6 +343,7 @@ const Portal: React.FC = () => {
       });
 
       const result = await response.json();
+      setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'extend', data: result }, ...prev].slice(0, 50));
 
       if (response.ok && result.success) {
         // Refresh session info after extension
@@ -460,6 +470,7 @@ const Portal: React.FC = () => {
       });
 
       const data = await res.json();
+      setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'redeem-voucher', data }, ...prev].slice(0, 50));
 
       if (data.success) {
         setVoucherCode('');
@@ -493,6 +504,16 @@ const Portal: React.FC = () => {
     } finally {
       setRedeemingVoucher(false);
     }
+  };
+  
+  const fetchDebugInfo = async () => {
+    const macParam = encodeURIComponent(sessionInfo?.macAddress || deviceInfo?.mac || '');
+    try {
+      const res = await fetch(`/api/portal/debug${macParam ? `?mac=${macParam}` : ''}`);
+      const data = await res.json();
+      setDebugInfo(data.data || data);
+      setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'debug-info', data }, ...prev].slice(0, 50));
+    } catch {}
   };
 
   const backgroundStyle = portalSettings.backgroundImage 
@@ -539,6 +560,12 @@ const Portal: React.FC = () => {
              }`}>
                {formatTimeRemaining(displayTimeRemaining)}
              </span>
+             <button
+               onClick={() => { setDebugOpen(prev => !prev); if (!debugOpen) fetchDebugInfo(); }}
+               className={`${isDarkTheme ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-800'} px-2 py-1 rounded-md text-xs`}
+             >
+               {debugOpen ? 'Hide Debug' : 'Show Debug'}
+             </button>
           </div>
         </div>
       )}
@@ -676,6 +703,39 @@ const Portal: React.FC = () => {
                     </button>
                   </div>
                 </div>
+                
+                {debugOpen && (
+                  <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 mt-4`}>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className={`text-sm font-semibold ${isDarkTheme ? 'text-white' : 'text-gray-900'}`}>Debug Info</span>
+                      <button
+                        onClick={fetchDebugInfo}
+                        className="px-2 py-1 bg-indigo-600 text-white rounded-md text-xs"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>MAC: {formatMAC(sessionInfo.macAddress || deviceInfo?.mac || '')}</div>
+                      <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>IP: {deviceInfo?.ip || debugInfo?.ip || 'N/A'}</div>
+                      <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Session Active: {String(debugInfo?.sessionActive ?? sessionInfo.isActive)}</div>
+                      <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Time Remaining: {formatTimeRemaining((debugInfo?.timeRemaining ?? displayTimeRemaining) as number)}</div>
+                      <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Server Connected: {String(debugInfo?.serverConnected)}</div>
+                      <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>Client Allowed: {String(debugInfo?.clientAllowed)}</div>
+                      <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'}`}>iptables Rules: {debugInfo?.iptablesRuleCount ?? 'N/A'}</div>
+                    </div>
+                    <div className="mt-3">
+                      <div className={`${isDarkTheme ? 'text-gray-300' : 'text-gray-700'} text-xs mb-1`}>Events</div>
+                      <div className="max-h-40 overflow-y-auto border rounded-md p-2 text-xs">
+                        {(debugEvents || []).map((ev, idx) => (
+                          <div key={idx} className={`${isDarkTheme ? 'text-gray-200' : 'text-gray-800'} mb-1`}>
+                            <span className="font-mono">{new Date(ev.ts).toLocaleTimeString()}</span> [{ev.type}] {typeof ev.data === 'object' ? JSON.stringify(ev.data) : String(ev.data)}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               /* Connected State */

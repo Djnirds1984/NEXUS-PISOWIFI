@@ -565,6 +565,10 @@ server=8.8.4.4
       // 3. Allow DNS (Port 53)
       await execAsync(`${ipt} -A FORWARD -p udp --dport 53 -j ACCEPT`);
       await execAsync(`${ipt} -A FORWARD -p tcp --dport 53 -j ACCEPT`);
+      // Allow DHCP (67/68) and NTP (123) for clients behind portal
+      await execAsync(`${ipt} -A FORWARD -p udp --dport 67 -j ACCEPT`);
+      await execAsync(`${ipt} -A FORWARD -p udp --dport 68 -j ACCEPT`);
+      await execAsync(`${ipt} -A FORWARD -p udp --dport 123 -j ACCEPT`);
 
       // 4. Allow traffic to Portal IP
       await execAsync(`${ipt} -A FORWARD -d ${gateway} -j ACCEPT`);
@@ -663,7 +667,7 @@ server=8.8.4.4
     return mac.replace(/-/g, ':').toLowerCase();
   }
 
-  async allowMACAddress(macAddress: string): Promise<void> {
+  async allowMACAddress(macAddress: string, ipAddress?: string): Promise<void> {
     const normalizedMac = this.normalizeMac(macAddress);
     
     // Update state first
@@ -677,27 +681,35 @@ server=8.8.4.4
     try {
       const ipt = await this.getIptablesCmd();
       if (!ipt) return;
-      await this.applyAllowRules(ipt, normalizedMac);
+      await this.applyAllowRules(ipt, normalizedMac, ipAddress);
     } catch (error) {
       console.error('Error allowing MAC address:', error);
       throw error;
     }
   }
 
-  private async applyAllowRules(ipt: string, normalizedMac: string): Promise<void> {
-    console.log(`Applying firewall rules for MAC: ${normalizedMac}`);
+  private async applyAllowRules(ipt: string, normalizedMac: string, ipAddress?: string): Promise<void> {
+    console.log(`Applying firewall rules for MAC: ${normalizedMac}${ipAddress ? `, IP: ${ipAddress}` : ''}`);
 
     // 1. Clean up any existing rules for this MAC first to avoid duplicates
     // We can't call blockMACAddress because it removes from the Set!
-    await this.removeAllowRules(ipt, normalizedMac);
+    await this.removeAllowRules(ipt, normalizedMac, ipAddress);
 
-    // 2. Bypass DNAT (Captive Portal) for this MAC
-    // We use -I to insert at the top, ensuring it runs before the captive portal redirect
-    await execAsync(`${ipt} -t nat -I PREROUTING 1 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+    const settings = getSettings();
+    const lan = settings.network.lanInterface;
+    // 2. Bypass DNAT (Captive Portal) for this MAC on LAN interface
+    await execAsync(`${ipt} -t nat -I PREROUTING 1 -i ${lan} -p tcp --dport 80 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
 
     // 3. Allow Forwarding for this MAC
-    // Insert at position 1 to bypass the catch-all DROP at the end
     await execAsync(`${ipt} -I FORWARD 1 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+    
+    // 4. Optional IP-based allow fallback if MAC match is unavailable on platform
+    if (ipAddress) {
+      // Allow HTTP DNAT bypass for this source IP as well
+      await execAsync(`${ipt} -t nat -I PREROUTING 1 -i ${lan} -p tcp --dport 80 -s ${ipAddress} -j ACCEPT`);
+      // Allow all forwarding for this IP
+      await execAsync(`${ipt} -I FORWARD 1 -s ${ipAddress} -j ACCEPT`);
+    }
     
     console.log(`MAC address ${normalizedMac} allowed through captive portal`);
   }
@@ -723,22 +735,42 @@ server=8.8.4.4
     }
   }
 
-  private async removeAllowRules(ipt: string, normalizedMac: string): Promise<void> {
-    // 1. Remove DNAT bypass
+  private async removeAllowRules(ipt: string, normalizedMac: string, ipAddress?: string): Promise<void> {
+    const settings = getSettings();
+    const lan = settings.network.lanInterface;
+    // 1. Remove DNAT bypass for MAC
     while (true) {
       try {
-        await execAsync(`${ipt} -t nat -D PREROUTING -m mac --mac-source ${normalizedMac} -j ACCEPT`);
+        await execAsync(`${ipt} -t nat -D PREROUTING -i ${lan} -p tcp --dport 80 -m mac --mac-source ${normalizedMac} -j ACCEPT`);
       } catch {
         break;
       }
     }
 
-    // 2. Remove Forwarding allow
+    // 2. Remove Forwarding allow for MAC
     while (true) {
       try {
         await execAsync(`${ipt} -D FORWARD -m mac --mac-source ${normalizedMac} -j ACCEPT`);
       } catch {
         break;
+      }
+    }
+    
+    // 3. Remove IP-based rules if present
+    if (ipAddress) {
+      while (true) {
+        try {
+          await execAsync(`${ipt} -t nat -D PREROUTING -i ${lan} -p tcp --dport 80 -s ${ipAddress} -j ACCEPT`);
+        } catch {
+          break;
+        }
+      }
+      while (true) {
+        try {
+          await execAsync(`${ipt} -D FORWARD -s ${ipAddress} -j ACCEPT`);
+        } catch {
+          break;
+        }
       }
     }
   }
