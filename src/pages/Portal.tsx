@@ -1025,7 +1025,7 @@ const Portal: React.FC = () => {
               </div>
             </div>
 
-            {!sessionInfo?.isActive ? (
+            {!(sessionInfo && sessionInfo.macAddress) ? (
               /* Not Connected State */
               <div className="text-center">
                 <div className={`${isDarkTheme ? 'bg-gray-700' : 'bg-gray-50'} rounded-lg p-4 mb-4`}>
