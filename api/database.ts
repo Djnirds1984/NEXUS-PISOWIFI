@@ -51,6 +51,9 @@ interface Session {
   minutes: number;
   active: boolean;
   ipAddress?: string;
+  paused?: boolean;
+  pausedAt?: string | null;
+  pausedDuration?: number;
 }
 
 interface DatabaseSchema {

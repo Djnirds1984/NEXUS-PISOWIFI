@@ -139,6 +139,13 @@ const Portal: React.FC = () => {
       setDisplayTimeRemaining(sessionInfo?.timeRemaining || 0);
       return;
     }
+    
+    // Don't count down if session is paused
+    if (isPaused) {
+      setDisplayTimeRemaining(sessionInfo?.timeRemaining || 0);
+      return;
+    }
+    
     const tick = () => {
       const nowClient = Date.now();
       const offsetMs = syncAnchor.serverMs - syncAnchor.clientMs;
@@ -150,7 +157,7 @@ const Portal: React.FC = () => {
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [syncAnchor]);
+  }, [syncAnchor, isPaused, sessionInfo?.timeRemaining]);
 
   const fetchPortalData = async () => {
     try {
@@ -219,7 +226,9 @@ const Portal: React.FC = () => {
       if (response.ok) {
         const status = await response.json();
         const data = status.data || status;
-        setSessionInfo({
+        
+        // Update session info with proper pause state
+        const sessionData = {
           macAddress: data.session?.macAddress || '',
           timeRemaining: data.timeRemaining || 0,
           isActive: data.connected || false,
@@ -227,11 +236,17 @@ const Portal: React.FC = () => {
           totalMinutes: data.session?.minutes || undefined,
           serverTime: data.serverTime || undefined,
           sessionEndTime: data.sessionEndTime ?? null,
-          isPaused: data.session?.paused || false,
+          isPaused: data.isPaused || false,
           pausedAt: data.session?.pausedAt || null,
           pausedDuration: data.session?.pausedDuration || 0
-        });
+        };
+        
+        setSessionInfo(sessionData);
         setIsPaused(data.isPaused || false);
+        
+        // Update time display immediately
+        setDisplayTimeRemaining(data.timeRemaining || 0);
+        
         if (typeof data.serverTime === 'number') {
           setSyncAnchor({
             serverMs: data.serverTime,
@@ -240,7 +255,6 @@ const Portal: React.FC = () => {
           });
         } else {
           setSyncAnchor(null);
-          setDisplayTimeRemaining(data.timeRemaining || 0);
         }
       }
     } catch (error) {
@@ -560,8 +574,8 @@ const Portal: React.FC = () => {
       setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'pause-session', data: result }, ...prev].slice(0, 50));
 
       if (response.ok && result.success) {
-        setIsPaused(true);
-        setSessionInfo(prev => prev ? { ...prev, isActive: false } : null);
+        // Immediately refresh session info to get updated time remaining
+        await fetchSessionInfo();
       } else {
         setError(result.error || 'Failed to pause session');
       }
@@ -590,16 +604,8 @@ const Portal: React.FC = () => {
       setDebugEvents(prev => [{ ts: new Date().toISOString(), type: 'resume-session', data: result }, ...prev].slice(0, 50));
 
       if (response.ok && result.success) {
-        setIsPaused(false);
-        setSessionInfo(prev => prev ? { ...prev, isActive: true } : null);
-        // Update sync anchor with new server time
-        if (result.data?.serverTime) {
-          setSyncAnchor({
-            serverMs: result.data.serverTime,
-            clientMs: Date.now(),
-            remainingSec: result.data.timeRemaining || 0
-          });
-        }
+        // Immediately refresh session info to get updated time remaining and server time
+        await fetchSessionInfo();
       } else {
         setError(result.error || 'Failed to resume session');
       }

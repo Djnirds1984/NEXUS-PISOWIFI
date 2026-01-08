@@ -361,7 +361,7 @@ export class SessionManager {
 
     // If session is paused, return the time remaining when it was paused
     if (session.paused) {
-      return Math.max(0, Math.floor((session.pausedAt!.getTime() - session.startTime.getTime()) / 1000));
+      return Math.max(0, Math.floor((session.endTime.getTime() - session.pausedAt!.getTime()) / 1000));
     }
 
     const now = new Date();
