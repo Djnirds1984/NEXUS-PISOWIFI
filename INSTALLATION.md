@@ -49,7 +49,7 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y curl wget git build-essential python3-pip
 
 # Install Node.js 18.x
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
 # Verify Node.js installation
