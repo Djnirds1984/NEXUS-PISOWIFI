@@ -97,7 +97,7 @@ gpio readall
 #### Clone the Repository
 ```bash
 cd ~
-git clone https://github.com/your-repo/nexus-pisowifi.git
+git clone https://github.com/Djnirds1984/NEXUS-PISOWIFI.git
 cd nexus-pisowifi
 ```
 
